@@ -42,6 +42,13 @@
 const tagName = decodeURIComponent("{{ tag_name }}");
 let currentPage = 1;
 
+function r18Param() {
+    try {
+        const v = localStorage.getItem('pa-r18');
+        return (v === 'hide' || v === 'only') ? v : '';
+    } catch (e) { return ''; }
+}
+
 async function load() {
     document.getElementById('tagInfo').style.display = 'block';
     document.getElementById('tagInfo').innerHTML = `<h2>#${tagName}</h2>`;
@@ -53,7 +60,7 @@ async function loadTagArtworks(page = 1) {
     document.getElementById('loading').style.display = 'block';
     document.getElementById('gallery').innerHTML = '';
 
-    const resp = await fetch(`/api/artworks?page=${page}&tag=${encodeURIComponent(tagName)}`);
+    const resp = await fetch(`/api/artworks?page=${page}&tag=${encodeURIComponent(tagName)}&r18=${r18Param()}`);
     const data = await resp.json();
     document.getElementById('loading').style.display = 'none';
 

@@ -410,7 +410,7 @@ main {
     cursor: pointer;
     background: var(--surface-3);
     box-shadow: var(--shadow-sm);
-    animation: tileIn 0.35s ease both;
+    animation: tileIn 0.22s ease both;
     transition: box-shadow 0.18s;
 }
 
@@ -421,7 +421,7 @@ main {
     z-index: 0;
     background: linear-gradient(100deg, transparent 35%, var(--shimmer) 50%, transparent 65%);
     background-size: 220% 100%;
-    animation: shimmer 1.6s infinite;
+    animation: shimmer 1.2s ease 1;
     pointer-events: none;
 }
 
@@ -454,8 +454,7 @@ main {
 }
 
 .tile .tile-badges span {
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
+    background: rgba(0, 0, 0, 0.62);
     color: #fff;
     font-size: 10px;
     padding: 2px 7px;
@@ -2102,4 +2101,117 @@ html.safe-mode img {
     .meta-section div {
         white-space: normal;
     }
+}
+
+
+/* ===== R18 角标 / 筛选 ===== */
+.tile-badges span.r18 {
+    background: #e0457b;
+    color: #fff;
+}
+
+/* ===== 设置分页视图 ===== */
+.settings-panel {
+    max-height: 86vh;
+    overflow-y: auto;
+}
+.settings-tabs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+.settings-tab {
+    padding: 9px 22px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-soft);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.settings-tab:hover {
+    background: var(--surface-2);
+}
+.settings-tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+.settings-tab.active:hover {
+    background: var(--accent-hover);
+}
+.settings-github {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+}
+.settings-github:hover {
+    color: var(--accent);
+    background: var(--accent-soft);
+}
+.settings-github svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+}
+.settings-section { display: block; }
+
+/* ===== 作者列表：头像 + 小字 ID ===== */
+.author-row-head {
+    align-items: center;
+}
+.author-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--border-strong);
+    flex-shrink: 0;
+    background: var(--surface-2);
+}
+.author-id {
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+}
+
+/* ===== 打开文件夹按钮 ===== */
+.v-folder-btn {
+    padding: 8px 18px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-2);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.v-folder-btn:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+.btn-folder-ghost {
+    padding: 5px 14px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.15s;
+}
+.btn-folder-ghost:hover {
+    background: var(--accent-soft);
 }

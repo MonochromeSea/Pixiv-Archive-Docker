@@ -42,6 +42,13 @@
 const authorId = {{ author_id }};
 let currentPage = 1;
 
+function r18Param() {
+    try {
+        const v = localStorage.getItem('pa-r18');
+        return (v === 'hide' || v === 'only') ? v : '';
+    } catch (e) { return ''; }
+}
+
 async function load() {
     document.getElementById('loading').style.display = 'block';
 
@@ -71,7 +78,7 @@ async function loadAuthorArtworks(page = 1) {
     document.getElementById('loading').style.display = 'block';
     document.getElementById('gallery').innerHTML = '';
 
-    const resp = await fetch(`/api/artworks?page=${page}&author=${encodeURIComponent(window._authorName)}`);
+    const resp = await fetch(`/api/artworks?page=${page}&author=${encodeURIComponent(window._authorName)}&r18=${r18Param()}`);
     const data = await resp.json();
     document.getElementById('loading').style.display = 'none';
 

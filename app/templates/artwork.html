@@ -66,6 +66,7 @@ async function loadDetail() {
         <a href="/" class="back-link">← 返回首页</a>
         <div class="detail-title-row">
             <h2>${escapeHtml(data.title)}</h2>
+            <button class="btn-folder-ghost" onclick="openInFolder()">📁 在文件夹中打开</button>
             <button class="btn-delete-ghost" onclick="deleteCurrent()">删除作品</button>
         </div>
         <div class="meta-section">
@@ -83,6 +84,7 @@ async function loadDetail() {
         ${imagesHtml}
     `;
 
+    window._detailImages = data.images;
     document.getElementById('detail').innerHTML = html;
 
     if (data.images.length > 1) {
@@ -114,6 +116,26 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+async function openInFolder() {
+    const list = window._detailImages || [];
+    const img = (window._imageList && window._imageList.length && window._currentIdx != null)
+        ? window._imageList[window._currentIdx]
+        : (list[0] || null);
+    if (!img) { alert('没有可打开的图片'); return; }
+    try {
+        const resp = await fetch('/api/open-folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_id: img.id })
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') alert('已在文件夹中打开');
+        else alert('打开失败：' + (data.error || '未知错误'));
+    } catch (e) {
+        alert('打开失败：' + e.message);
+    }
 }
 
 async function deleteCurrent() {

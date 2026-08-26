@@ -50,16 +50,35 @@ def _fmt_error(err):
 
 def _build_session():
     """Build a plain requests.Session (replaces cloudscraper for direct mode)."""
+    return _build_session_with_referer("https://app-api.pixiv.net/")
+
+
+def _build_session_with_referer(referer):
     session = requests.Session()
     adapter = DirectAdapter()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     session.verify = False
     session.headers.update({
-        "referer": "https://app-api.pixiv.net/",
+        "referer": referer,
         "User-Agent": "PixivIOSApp/5.8.0",
     })
     return session
+
+
+def fetch_profile_image(url, timeout=REQUEST_TIMEOUT):
+    """Download a pixiv author profile image (for avatar cache). Returns bytes or None."""
+    if not url:
+        return None
+    try:
+        enable_direct()
+        session = _build_session_with_referer("https://www.pixiv.net/")
+        resp = session.get(url, timeout=timeout)
+        if resp.status_code == 200:
+            return resp.content
+        return None
+    except Exception:
+        return None
 
 
 class PixivClient:

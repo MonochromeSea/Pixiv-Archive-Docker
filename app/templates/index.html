@@ -39,6 +39,8 @@
         <option value="desc">降序</option>
         <option value="asc">升序</option>
     </select>
+    <button class="top-btn" id="btnR18" onclick="cycleR18()" title="切换 R18 显示模式">R18：全部</button>
+    <button class="top-btn" id="btnDeleted" onclick="toggleDeletedFilter()" title="只看已删除作品">已删除</button>
     <button class="top-btn" id="btnAuthors" onclick="switchView('authors')">作者列表</button>
     <button class="top-btn" id="btnTags" onclick="switchView('tags')">标签列表</button>
     <button class="top-btn" id="btnFavorites" onclick="switchView('favorites')">收藏夹</button>
@@ -152,6 +154,7 @@
         <div class="v-meta" id="vMeta"></div>
         <div class="v-actions">
             <button class="v-fav-btn" id="vFavBtn" onclick="openFavSelect(window._viewerArtworkId)">☆ 收藏</button>
+            <button class="v-folder-btn" onclick="openInFolder()" title="在文件夹中打开">📁</button>
             <button class="v-delete" onclick="deleteCurrent()">删除作品</button>
         </div>
     </div>
@@ -188,56 +191,68 @@
 <!-- Settings overlay -->
 <div id="settingsOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeSettings()">
     <div class="settings-panel">
-        <h3>设置</h3>
-        <div class="settings-field">
-            <label for="settingToken">Pixiv Refresh Token</label>
-            <input type="password" id="settingToken" placeholder="输入 refresh token">
-            <span class="field-hint" id="tokenHint"></span>
+        <div class="settings-tabs">
+            <button type="button" class="settings-tab active" id="tabBasic" onclick="switchSettingsTab('basic')">基础设置</button>
+            <button type="button" class="settings-tab" id="tabNetwork" onclick="switchSettingsTab('network')">网络设置</button>
+            <a class="settings-github" href="https://github.com/Tumber-ZM/Pixiv-Archive" target="_blank" rel="noopener noreferrer" title="GitHub 仓库">
+                <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
+                </svg>
+            </a>
         </div>
-        <div class="settings-field">
-            <label for="settingDir">本地图片目录</label>
-            <input type="text" id="settingDir" placeholder="例如 D:\Pixiv">
-            <span class="field-hint" id="dirHint"></span>
+        <div class="settings-section" id="secBasic">
+            <div class="settings-field">
+                <label for="settingToken">Pixiv Refresh Token</label>
+                <input type="password" id="settingToken" placeholder="输入 refresh token">
+                <span class="field-hint" id="tokenHint"></span>
+            </div>
+            <div class="settings-field">
+                <label for="settingDir">本地图片目录</label>
+                <input type="text" id="settingDir" placeholder="例如 D:\Pixiv">
+                <span class="field-hint" id="dirHint"></span>
+            </div>
+            <div class="settings-field">
+                <label for="settingPort">服务器端口</label>
+                <input type="text" id="settingPort" placeholder="6814">
+                <span class="field-hint" id="portHint"></span>
+            </div>
+            <div class="settings-field">
+                <label for="settingAccessToken">访问令牌（局域网）</label>
+                <input type="text" id="settingAccessToken" placeholder="留空则自动生成">
+                <span class="field-hint" id="tokenHint2"></span>
+            </div>
+            <div class="settings-field">
+                <label class="fav-check">
+                    <input type="checkbox" id="settingSafeMode" onchange="setSafeMode(this.checked)">
+                    安全模式（模糊所有图片）
+                </label>
+                <span class="field-hint">开启后所有图片将模糊显示，适合演示 / 屏幕共享时保护内容。</span>
+            </div>
+            <div class="settings-field" id="openExternalField" style="display:none;">
+                <button onclick="openExternalBrowser()">↗ 在外部浏览器中打开</button>
+                <span class="field-hint">在系统浏览器中打开当前应用（桌面窗口模式下可用）。</span>
+            </div>
         </div>
-        <div class="settings-field">
-            <label for="settingMode">连接方式</label>
-            <select id="settingMode">
-                <option value="auto">自动（直连优先，失败回退代理）</option>
-                <option value="direct">直连（内置绕过 DNS/SNI）</option>
-                <option value="proxy">Clash 代理</option>
-            </select>
-            <span class="field-hint" id="modeHint"></span>
-        </div>
-        <div class="settings-field">
-            <label for="settingProxy">代理地址（代理模式使用）</label>
-            <input type="text" id="settingProxy" placeholder="http://127.0.0.1:7890">
-            <span class="field-hint" id="proxyHint"></span>
-        </div>
-        <div class="settings-field">
-            <label for="settingPort">服务器端口</label>
-            <input type="text" id="settingPort" placeholder="6814">
-            <span class="field-hint" id="portHint"></span>
-        </div>
-        <div class="settings-field">
-            <label for="settingAccessToken">访问令牌（局域网）</label>
-            <input type="text" id="settingAccessToken" placeholder="留空则自动生成">
-            <span class="field-hint" id="tokenHint2"></span>
-        </div>
-        <div class="settings-field">
-            <label>直连 IP 管理</label>
-            <button onclick="refreshDirectIps()">🔄 刷新直连 IP（DoH 查询）</button>
-            <span class="field-hint" id="refreshIpHint"></span>
-        </div>
-        <div class="settings-field">
-            <label class="fav-check">
-                <input type="checkbox" id="settingSafeMode" onchange="setSafeMode(this.checked)">
-                安全模式（模糊所有图片）
-            </label>
-            <span class="field-hint">开启后所有图片将模糊显示，适合演示 / 屏幕共享时保护内容。</span>
-        </div>
-        <div class="settings-field" id="openExternalField" style="display:none;">
-            <button onclick="openExternalBrowser()">↗ 在外部浏览器中打开</button>
-            <span class="field-hint">在系统浏览器中打开当前应用（桌面窗口模式下可用）。</span>
+        <div class="settings-section" id="secNetwork" style="display:none;">
+            <div class="settings-field">
+                <label for="settingMode">连接方式</label>
+                <select id="settingMode">
+                    <option value="auto">自动（直连优先，失败回退代理）</option>
+                    <option value="direct">直连（内置绕过 DNS/SNI）</option>
+                    <option value="proxy">Clash 代理</option>
+                </select>
+                <span class="field-hint" id="modeHint"></span>
+            </div>
+            <div class="settings-field">
+                <label for="settingProxy">代理地址（代理模式使用）</label>
+                <input type="text" id="settingProxy" placeholder="http://127.0.0.1:7890">
+                <span class="field-hint" id="proxyHint"></span>
+            </div>
+            <div class="settings-field">
+                <label>直连 IP 管理</label>
+                <button onclick="refreshDirectIps()">🔄 刷新直连 IP（DoH 查询）</button>
+                <span class="field-hint" id="refreshIpHint"></span>
+            </div>
         </div>
         <div class="settings-actions">
             <button onclick="saveSettings()" class="btn-primary">保存</button>
@@ -361,17 +376,21 @@ async function loadGallery(page = 1) {
 }
 
 function buildGalleryUrl(page, ctx) {
+    let url;
     if (ctx.type === 'search') {
-        let url = `/api/search?q=${encodeURIComponent(ctx.q)}&page=${page}&per_page=200`;
+        url = `/api/search?q=${encodeURIComponent(ctx.q)}&page=${page}&per_page=100`;
         if (ctx.tag) url += `&tag=${encodeURIComponent(ctx.tag)}`;
         if (ctx.author) url += `&author=${encodeURIComponent(ctx.author)}`;
         if (ctx.favoriteId) url += `&favorite_id=${ctx.favoriteId}`;
-        return url;
+    } else {
+        url = `/api/artworks?page=${page}&sort=${ctx.sort}&order=${ctx.order}&per_page=100`;
+        if (ctx.type === 'tag') url += `&tag=${encodeURIComponent(ctx.tag)}`;
+        else if (ctx.type === 'author') url += `&author=${encodeURIComponent(ctx.author)}`;
+        else if (ctx.type === 'favorite') url += `&favorite_id=${ctx.favoriteId}`;
     }
-    let url = `/api/artworks?page=${page}&sort=${ctx.sort}&order=${ctx.order}&per_page=200`;
-    if (ctx.type === 'tag') url += `&tag=${encodeURIComponent(ctx.tag)}`;
-    else if (ctx.type === 'author') url += `&author=${encodeURIComponent(ctx.author)}`;
-    else if (ctx.type === 'favorite') url += `&favorite_id=${ctx.favoriteId}`;
+    const r = r18Param();
+    if (r) url += '&r18=' + r;
+    if (deletedFilter) url += '&status=deleted';
     return url;
 }
 
@@ -396,7 +415,7 @@ function renderGallery(data) {
     data.artworks.forEach((a, idx) => {
         const tile = document.createElement('div');
         tile.className = 'tile';
-        tile.style.animationDelay = Math.min(idx * 12, 360) + 'ms';
+        tile.style.animationDelay = Math.min(idx * 5, 100) + 'ms';
         tile.dataset.id = a.id;
         tile.dataset.title = a.title || `Pixiv ID: ${a.pixiv_id}`;
         tile.dataset.author = a.author_name || '';
@@ -407,6 +426,7 @@ function renderGallery(data) {
 
         let badges = '';
         if (a.page_count > 1) badges += `<span>${a.page_count}P</span>`;
+        if (a.is_r18) badges += `<span class="r18">R18</span>`;
         if (a.pixiv_status === 'deleted') badges += `<span class="deleted">已删除</span>`;
         if (a.sync_error) badges += `<span class="sync-err">同步失败</span>`;
 
@@ -589,7 +609,7 @@ async function loadAuthorsView() {
     const q = $('authorSearchInput') ? $('authorSearchInput').value.trim() : '';
     list.innerHTML = '<div class="loading">加载中...</div>';
     try {
-        let url = '/api/authors/works?limit=20';
+        let url = '/api/authors/works?limit=20&r18=' + r18Param();
         if (q) url += '&q=' + encodeURIComponent(q);
         const resp = await fetch(url);
         const authors = await resp.json();
@@ -610,8 +630,11 @@ async function loadAuthorsView() {
             _authorWorksIds[a.id] = works.map(w => w.id);
             row.innerHTML = `
                 <div class="author-row-head">
+                    <img class="author-avatar" src="/api/authors/${a.id}/avatar" alt="" loading="lazy"
+                         onerror="this.style.display='none'">
                     <span class="author-name" onclick="filterByAuthor('${escapeAttr(a.name)}')">${escapeHtml(a.name)}</span>
-                    <span class="author-meta">Pixiv ID：${a.pixiv_user_id} | 作品：${a.artwork_count}</span>
+                    <span class="author-id">ID：${a.pixiv_user_id}</span>
+                    <span class="author-meta">作品：${a.artwork_count}</span>
                 </div>
                 <div class="author-works">${worksHtml}</div>`;
             frag.appendChild(row);
@@ -676,7 +699,7 @@ async function loadFavoritesView() {
     const grid = $('favoriteGrid');
     grid.innerHTML = '<div class="loading">加载中...</div>';
     try {
-        const resp = await fetch('/api/favorites');
+        const resp = await fetch('/api/favorites?r18=' + r18Param());
         const favorites = await resp.json();
         _favCache = favorites;
         grid.innerHTML = '';
@@ -1060,6 +1083,24 @@ function deleteCurrent() {
     openDeleteConfirm([window._viewerArtworkId], `确认删除作品 "${title}"？`);
 }
 
+async function openInFolder() {
+    if (!_viewer.data) return;
+    const img = _viewer.data.images[_viewer.idx];
+    if (!img) { showToast('当前没有可打开的图片'); return; }
+    try {
+        const resp = await fetch('/api/open-folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_id: img.id })
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') showToast('已在文件夹中打开');
+        else showToast('打开失败：' + (data.error || '未知错误'));
+    } catch (e) {
+        showToast('打开失败：' + e.message);
+    }
+}
+
 // ===== Keyboard nav =====
 document.addEventListener('keydown', function (e) {
     if (!$('viewerOverlay').classList.contains('hidden')) {
@@ -1250,6 +1291,58 @@ function showToast(msg) {
     t.classList.add('visible');
     clearTimeout(_toastTimer);
     _toastTimer = setTimeout(() => t.classList.remove('visible'), 3500);
+}
+
+// ===== R18 显示模式 / 已删除快速筛选 / 设置分页 =====
+let _r18Mode = 'all';
+let deletedFilter = false;
+
+function r18Param() {
+    return _r18Mode === 'all' ? '' : _r18Mode;
+}
+
+function initR18() {
+    try {
+        const v = localStorage.getItem('pa-r18');
+        if (v === 'hide' || v === 'only') _r18Mode = v;
+    } catch (e) {}
+    updateR18Btn();
+}
+
+function cycleR18() {
+    _r18Mode = ({ all: 'hide', hide: 'only', only: 'all' })[_r18Mode] || 'all';
+    try { localStorage.setItem('pa-r18', _r18Mode); } catch (e) {}
+    updateR18Btn();
+    if (currentView === 'authors') loadAuthorsView();
+    else if (currentView === 'tags') loadTagsView();
+    else if (currentView === 'favorites') loadFavoritesView();
+    else loadGallery(1);
+}
+
+function updateR18Btn() {
+    const labels = { all: 'R18：全部', hide: 'R18：隐藏', only: 'R18：仅R18' };
+    const btn = $('btnR18');
+    if (btn) btn.textContent = labels[_r18Mode] || 'R18：全部';
+}
+
+function toggleDeletedFilter() {
+    deletedFilter = !deletedFilter;
+    const btn = $('btnDeleted');
+    if (btn) btn.classList.toggle('active', deletedFilter);
+    if (deletedFilter) {
+        setFilter('status', 'deleted', '已删除作品');
+    } else {
+        clearFilter();
+    }
+    if (currentView !== 'gallery') switchView('gallery');
+    loadGallery(1);
+}
+
+function switchSettingsTab(name) {
+    if ($('secBasic')) $('secBasic').style.display = name === 'basic' ? '' : 'none';
+    if ($('secNetwork')) $('secNetwork').style.display = name === 'network' ? '' : 'none';
+    if ($('tabBasic')) $('tabBasic').classList.toggle('active', name === 'basic');
+    if ($('tabNetwork')) $('tabNetwork').classList.toggle('active', name === 'network');
 }
 
 // ===== Theme =====
@@ -1449,6 +1542,7 @@ $('searchInput').addEventListener('keydown', function (e) {
 
 updateThemeBtn();
 updateSafeBadge();
+initR18();
 if (window.pywebview && window.pywebview.api) {
     const f = $('openExternalField');
     if (f) f.style.display = 'block';

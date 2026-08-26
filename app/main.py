@@ -2,6 +2,7 @@ import json
 import os
 import secrets
 import socket
+import subprocess
 import sys
 from urllib.parse import unquote, parse_qs
 from fastapi import FastAPI, Query, Request
@@ -17,7 +18,7 @@ from app import jobs
 from app.database import get_db, init_db
 from app.scanner import scan_directory
 from app.sync import sync_metadata
-from app.pixiv import reset_pixiv_client
+from app.pixiv import reset_pixiv_client, fetch_profile_image
 
 load_dotenv(paths.ENV_FILE)
 
@@ -174,6 +175,29 @@ def index(request: Request):
     return templates.TemplateResponse(request, "index.html")
 
 
+# ---- R18 / 状态筛选 ----
+# 严格判定：#R18 标签（R-18 / R18 / 18R，大小写不敏感），不含 R-18G。
+_R18_TAG_SET = "('r-18','r18','18r')"
+
+
+def _r18_exists(alias="a"):
+    return (
+        f"{alias}.id IN (SELECT rj.artwork_id FROM artwork_tags rj "
+        f"JOIN tags rt ON rj.tag_id = rt.id "
+        f"WHERE (LOWER(COALESCE(rt.name, '')) IN {_R18_TAG_SET} "
+        f"OR LOWER(COALESCE(rt.translated_name, '')) IN {_R18_TAG_SET}))"
+    )
+
+
+def _r18_where(alias, value):
+    mode = (value or "").strip().lower()
+    if mode == "hide":
+        return "NOT " + _r18_exists(alias)
+    if mode == "only":
+        return "(" + _r18_exists(alias) + ")"
+    return None
+
+
 @app.get("/api/artworks")
 def api_artworks(
     page: int = Query(1, ge=1),
@@ -183,6 +207,8 @@ def api_artworks(
     author: str = Query(""),
     tag: str = Query(""),
     favorite_id: int = Query(0, ge=0),
+    r18: str = Query(""),
+    status: str = Query(""),
 ):
     with get_db() as conn:
         where_clauses = []
@@ -203,10 +229,18 @@ def api_artworks(
                 "WHERE favorite_id = ?)"
             )
             params.append(favorite_id)
+        if status == "deleted":
+            where_clauses.append("a.pixiv_status = 'deleted'")
+        _r18c = _r18_where("a", r18)
+        if _r18c:
+            where_clauses.append(_r18c)
 
         where_sql = ""
         if where_clauses:
             where_sql = "WHERE " + " AND ".join(where_clauses)
+        count_row = conn.execute(
+            f"SELECT COUNT(*) FROM artworks a {where_sql}", params
+        ).fetchone()
 
         count_row = conn.execute(
             f"SELECT COUNT(*) FROM artworks a {where_sql}", params
@@ -223,7 +257,8 @@ def api_artworks(
 
         rows = conn.execute(
             f"""SELECT a.*, i.path AS thumb_path,
-                EXISTS(SELECT 1 FROM favorite_artworks fa WHERE fa.artwork_id = a.id) AS is_favorited
+                a.id IN (SELECT fa.artwork_id FROM favorite_artworks fa) AS is_favorited,
+                {_r18_exists()} AS is_r18
                 FROM artworks a
                 LEFT JOIN images i ON a.id = i.artwork_id AND i.page = 0
                 {where_sql}
@@ -244,6 +279,7 @@ def api_artworks(
                 "pixiv_status": row["pixiv_status"],
                 "thumb_path": row["thumb_path"] or "",
                 "is_favorited": bool(row["is_favorited"]),
+                "is_r18": bool(row["is_r18"]),
                 "sync_error": row["sync_error"] or "",
             })
 
@@ -405,11 +441,14 @@ def api_search(
     author: str = Query(""),
     tag: str = Query(""),
     favorite_id: int = Query(0, ge=0),
+    r18: str = Query(""),
+    status: str = Query(""),
 ):
     query = q.strip()
     if not query:
         return api_artworks(page=page, per_page=per_page, sort="id", order="desc",
-                            author=author, tag=tag, favorite_id=favorite_id)
+                            author=author, tag=tag, favorite_id=favorite_id,
+                            r18=r18, status=status)
 
     tokens = [t for t in query.split() if t]
 
@@ -444,6 +483,11 @@ def api_search(
                 "WHERE favorite_id = ?)"
             )
             params.append(favorite_id)
+        if status == "deleted":
+            token_conditions.append("a.pixiv_status = 'deleted'")
+        _r18c = _r18_where("a", r18)
+        if _r18c:
+            token_conditions.append(_r18c)
 
         where_sql = " WHERE " + " AND ".join(token_conditions)
 
@@ -455,7 +499,8 @@ def api_search(
         offset = (page - 1) * per_page
         rows = conn.execute(
             f"""SELECT a.*, i.path AS thumb_path,
-                EXISTS(SELECT 1 FROM favorite_artworks fa WHERE fa.artwork_id = a.id) AS is_favorited
+                a.id IN (SELECT fa.artwork_id FROM favorite_artworks fa) AS is_favorited,
+                {_r18_exists()} AS is_r18
                 FROM artworks a
                 LEFT JOIN images i ON a.id = i.artwork_id AND i.page = 0
                 {where_sql}
@@ -476,6 +521,7 @@ def api_search(
                 "pixiv_status": row["pixiv_status"],
                 "thumb_path": row["thumb_path"] or "",
                 "is_favorited": bool(row["is_favorited"]),
+                "is_r18": bool(row["is_r18"]),
                 "sync_error": row["sync_error"] or "",
             })
 
@@ -511,7 +557,7 @@ def api_tags(q: str = Query("")):
 
 
 @app.get("/api/favorites")
-def api_favorites():
+def api_favorites(r18: str = Query("")):
     with get_db() as conn:
         favorites = conn.execute(
             """SELECT f.*, COUNT(fa.artwork_id) AS artwork_count
@@ -523,14 +569,18 @@ def api_favorites():
 
         result = []
         for fav in favorites:
+            works_clauses = ["fa.favorite_id = ?"]
+            _r18c = _r18_where("a", r18)
+            if _r18c:
+                works_clauses.append(_r18c)
             works = conn.execute(
-                """SELECT a.id, a.pixiv_id, a.title, a.page_count, i.path AS thumb_path
-                   FROM artworks a
-                   LEFT JOIN images i ON a.id = i.artwork_id AND i.page = 0
-                   JOIN favorite_artworks fa ON fa.artwork_id = a.id
-                   WHERE fa.favorite_id = ?
-                   ORDER BY fa.added_date DESC
-                   LIMIT 12""",
+                f"""SELECT a.id, a.pixiv_id, a.title, a.page_count, i.path AS thumb_path
+                    FROM artworks a
+                    LEFT JOIN images i ON a.id = i.artwork_id AND i.page = 0
+                    JOIN favorite_artworks fa ON fa.artwork_id = a.id
+                    WHERE {" AND ".join(works_clauses)}
+                    ORDER BY fa.added_date DESC
+                    LIMIT 12""",
                 (fav["id"],),
             ).fetchall()
             result.append({
@@ -647,6 +697,7 @@ def api_authors():
 def api_authors_works(
     limit: int = Query(20, ge=1, le=100),
     q: str = Query(""),
+    r18: str = Query(""),
 ):
     with get_db() as conn:
         q = q.strip()
@@ -667,11 +718,15 @@ def api_authors_works(
 
         result = []
         for au in authors:
+            works_where = "a.author_id = ?"
+            _r18c = _r18_where("a", r18)
+            if _r18c:
+                works_where += " AND " + _r18c
             works = conn.execute(
-                """SELECT a.id, a.pixiv_id, a.title, a.page_count, i.path AS thumb_path
+                f"""SELECT a.id, a.pixiv_id, a.title, a.page_count, i.path AS thumb_path
                    FROM artworks a
                    LEFT JOIN images i ON a.id = i.artwork_id AND i.page = 0
-                   WHERE a.author_id = ?
+                   WHERE {works_where}
                    ORDER BY a.create_date DESC, a.id DESC
                    LIMIT ?""",
                 (au["id"], limit),
@@ -684,6 +739,56 @@ def api_authors_works(
                 "works": [dict(w) for w in works],
             })
         return result
+
+
+@app.get("/api/authors/{author_id}/avatar")
+def api_author_avatar(author_id: int):
+    """Author avatar: serve from local cache, fetch via direct connect on miss."""
+    avatars_dir = os.path.join(paths.DATA_DIR, "metadata", "avatars")
+    cache_path = os.path.join(avatars_dir, f"{author_id}.jpg")
+    if os.path.exists(cache_path):
+        return FileResponse(cache_path, media_type="image/jpeg")
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT profile_image FROM authors WHERE id = ?", (author_id,)
+        ).fetchone()
+    if not row or not row["profile_image"]:
+        return JSONResponse({"error": "no avatar"}, status_code=404)
+
+    data = fetch_profile_image(row["profile_image"])
+    if not data:
+        return JSONResponse({"error": "fetch failed"}, status_code=404)
+    os.makedirs(avatars_dir, exist_ok=True)
+    with open(cache_path, "wb") as f:
+        f.write(data)
+    return FileResponse(cache_path, media_type="image/jpeg")
+
+
+@app.post("/api/open-folder")
+async def api_open_folder(request: Request):
+    from pydantic import BaseModel
+
+    class OpenFolder(BaseModel):
+        image_id: int
+
+    body = await request.json()
+    data = OpenFolder(**body)
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT path FROM images WHERE id = ?", (data.image_id,)
+        ).fetchone()
+    if not row:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    path = row["path"]
+    if not path or not os.path.isabs(path) or not os.path.exists(path):
+        return JSONResponse({"error": "文件不存在"}, status_code=404)
+    try:
+        # 用资源管理器打开并选中文件
+        subprocess.Popen(["explorer", "/select,", path])
+        return {"status": "ok"}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 def _error_response(code, message, hint=None, detail=None, status_code=400):
