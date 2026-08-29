@@ -25,6 +25,18 @@ load_dotenv(paths.ENV_FILE)
 # ---- 局域网访问控制 ----
 # PA_HOST 由 run.py / launcher.py 在导入本模块前写入环境。
 DEFAULT_PORT = 6814
+_SYNC_DELAY_DEFAULT = 800
+_SYNC_DELAY_MAX = 10000
+
+
+def _parse_sync_delay(raw):
+    s = (raw or "").strip()
+    if not s:
+        return _SYNC_DELAY_DEFAULT
+    if s.isdigit():
+        v = int(s)
+        return v if v <= _SYNC_DELAY_MAX else _SYNC_DELAY_MAX
+    return _SYNC_DELAY_DEFAULT
 HOST = os.getenv("PA_HOST", "127.0.0.1").strip() or "127.0.0.1"
 LAN_MODE = HOST not in ("127.0.0.1", "localhost", "::1")
 ACCESS_TOKEN = os.getenv("PA_ACCESS_TOKEN", "").strip()
@@ -916,6 +928,7 @@ def api_get_settings():
         "server_port": int(port_str) if port_str.isdigit() else DEFAULT_PORT,
         "access_token": ACCESS_TOKEN,
         "access_token_auto": access_token_auto,
+        "sync_delay_ms": _parse_sync_delay(settings.get("SYNC_DELAY_MS", "")),
     }
 
 
@@ -930,6 +943,7 @@ async def api_update_settings(request: Request):
         connection_mode: str = ""
         server_port: str = ""
         access_token: str = ""
+        sync_delay_ms: str = ""
 
     body = await request.json()
     data = SettingsUpdate(**body)
@@ -968,6 +982,25 @@ async def api_update_settings(request: Request):
             globals()["ACCESS_TOKEN"] = secrets.token_urlsafe(12)
         else:
             globals()["ACCESS_TOKEN"] = ""
+    if "sync_delay_ms" in body:
+        delay_str = (data.sync_delay_ms or "").strip()
+        if delay_str:
+            if delay_str.isdigit() and 0 <= int(delay_str) <= _SYNC_DELAY_MAX:
+                updates["SYNC_DELAY_MS"] = str(int(delay_str))
+                os.environ["SYNC_DELAY_MS"] = str(int(delay_str))
+            else:
+                return _error_response("INVALID_DELAY", "同步间隔需为 0-10000 的整数（毫秒）",
+                                       "请检查填写是否正确，0 表示不限速")
+    if "sync_delay_ms" in body:
+        delay_str = (data.sync_delay_ms or "").strip()
+        if delay_str == "":
+            pass
+        elif delay_str.isdigit() and 0 <= int(delay_str) <= 10000:
+            updates["SYNC_DELAY_MS"] = str(int(delay_str))
+            os.environ["SYNC_DELAY_MS"] = str(int(delay_str))
+        else:
+            return _error_response("INVALID_DELAY", "同步间隔需为 0-10000 的整数（毫秒）",
+                                   "请检查填写是否正确，0 表示不限速")
     _write_env_file(updates)
     return {"status": "ok"}
 

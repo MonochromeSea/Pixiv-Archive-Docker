@@ -29,6 +29,9 @@
     <div id="loading" class="loading">加载中...</div>
 </div>
 
+<!-- 自定义右键菜单 -->
+<div class="ctx-menu hidden" id="ctxMenu"></div>
+
 <script>
 const artworkId = {{ artwork_id }};
 
@@ -106,6 +109,7 @@ function nextImage() {
 }
 
 function updateImage() {
+    resetArtZoom();
     const img = window._imageList[window._currentIdx];
     document.getElementById('mainImage').src = paImg('/image/' + encodeURI(img.path));
     document.getElementById('pageIndicator').textContent = `${window._currentIdx + 1} / ${window._imageList.length}`;
@@ -150,6 +154,124 @@ async function deleteCurrent() {
         alert('删除失败: ' + e);
     }
 }
+
+let _artZoom = 1;
+let _artPanX = 0, _artPanY = 0;
+
+function _artTransform() {
+    const img = document.getElementById('mainImage');
+    if (img) {
+        img.style.transformOrigin = 'center center';
+        img.style.transform = 'translate(' + _artPanX + 'px,' + _artPanY + 'px) scale(' + _artZoom + ')';
+    }
+}
+
+function resetArtZoom() {
+    _artZoom = 1;
+    _artPanX = 0;
+    _artPanY = 0;
+    const img = document.getElementById('mainImage');
+    if (img) img.style.transform = '';
+}
+
+function applyArtZoom(factor) {
+    _artZoom = Math.min(5, Math.max(0.2, _artZoom * factor));
+    _artTransform();
+}
+
+function showCtxMenu(x, y, items) {
+    const menu = document.getElementById('ctxMenu');
+    menu.innerHTML = '';
+    items.forEach(it => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ctx-item' + (it.danger ? ' danger' : '');
+        b.textContent = it.label;
+        b.addEventListener('click', function () { hideCtxMenu(); it.action(); });
+        menu.appendChild(b);
+    });
+    menu.classList.remove('hidden');
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    const r = menu.getBoundingClientRect();
+    const nx = Math.min(x, window.innerWidth - r.width - 8);
+    const ny = Math.min(y, window.innerHeight - r.height - 8);
+    menu.style.left = Math.max(4, nx) + 'px';
+    menu.style.top = Math.max(4, ny) + 'px';
+}
+
+function hideCtxMenu() {
+    const menu = document.getElementById('ctxMenu');
+    menu.classList.add('hidden');
+    menu.innerHTML = '';
+}
+
+document.addEventListener('contextmenu', function (e) {
+    const t = e.target;
+    if (t && (t.closest('input') || t.closest('textarea') || t.closest('[contenteditable="true"]') || t.closest('#ctxMenu'))) return;
+    e.preventDefault();
+    const img = document.getElementById('mainImage');
+    const onImg = img && (t === img);
+    const items = onImg ? [
+        { label: '在文件夹中打开', action: function () { openInFolder(); } },
+        { label: '删除作品', danger: true, action: function () { deleteCurrent(); } },
+        { label: '返回首页', action: function () { window.location.href = '/'; } },
+    ] : [
+        { label: '刷新', action: function () { location.reload(); } },
+        { label: '返回首页', action: function () { window.location.href = '/'; } },
+    ];
+    showCtxMenu(e.clientX, e.clientY, items);
+});
+
+document.addEventListener('click', function (e) {
+    if (!(e.target.closest && e.target.closest('#ctxMenu'))) hideCtxMenu();
+});
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') hideCtxMenu();
+});
+window.addEventListener('scroll', function () { hideCtxMenu(); }, true);
+window.addEventListener('resize', function () { hideCtxMenu(); });
+
+document.addEventListener('wheel', function (e) {
+    const img = document.getElementById('mainImage');
+    if (img && e.target === img) {
+        e.preventDefault();
+        if (e.deltaY !== 0) applyArtZoom(e.deltaY < 0 ? 1.25 : 0.8);
+    }
+}, { passive: false });
+document.addEventListener('dblclick', function (e) {
+    const img = document.getElementById('mainImage');
+    if (img && e.target === img) resetArtZoom();
+});
+(function () {
+    const img = document.getElementById('mainImage');
+    if (!img) return;
+    // 禁止图片原生 HTML5 拖拽：消除拖动幽灵缩略图、避免 mouseup 被系统拖拽吞掉
+    img.draggable = false;
+    document.addEventListener('dragstart', function (e) {
+        if (e.target && e.target.tagName === 'IMG') e.preventDefault();
+    });
+    let dragging = false, sx = 0, sy = 0, px = 0, py = 0;
+    img.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+        if (_artZoom <= 1) return;
+        e.preventDefault();
+        dragging = true;
+        sx = e.clientX; sy = e.clientY;
+        px = _artPanX; py = _artPanY;
+    });
+    document.addEventListener('mousemove', function (e) {
+        if (!dragging) return;
+        _artPanX = px + (e.clientX - sx);
+        _artPanY = py + (e.clientY - sy);
+        _artTransform();
+    });
+    document.addEventListener('mouseup', function () { dragging = false; });
+    // 防止任何中断导致拖动状态卡死（原生拖拽结束/失焦/标签页隐藏）
+    document.addEventListener('dragend', function () { dragging = false; });
+    window.addEventListener('blur', function () { dragging = false; });
+    document.addEventListener('visibilitychange', function () { dragging = false; });
+})();
 
 loadDetail();
 </script>

@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from datetime import datetime
 from dotenv import load_dotenv
 from app import paths
@@ -20,6 +21,10 @@ def sync_metadata(specific_pixiv_id=None, progress_callback=None, cancel_event=N
     init_db()
     client = get_pixiv_client()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 风控限速：默认 800ms，设置里可调（SYNC_DELAY_MS，0=不限速）
+    _d_str = (os.getenv("SYNC_DELAY_MS", "") or "").strip()
+    delay_ms = int(_d_str) if _d_str.isdigit() else 800
+    delay_ms = max(0, min(delay_ms, 10000))
 
     with get_db() as conn:
         if specific_pixiv_id:
@@ -57,6 +62,18 @@ def sync_metadata(specific_pixiv_id=None, progress_callback=None, cancel_event=N
                     "sync", idx + 1, total,
                     f"同步元数据…{idx + 1}/{total}（PID {pixiv_id}）",
                 )
+
+            # 每次请求前按间隔限速（0.1s 分片，随时可取消）
+            if delay_ms > 0:
+                remain = delay_ms / 1000.0
+                while remain > 1e-9:
+                    if cancel_event is not None and cancel_event.is_set():
+                        results["cancelled"] = True
+                        break
+                    time.sleep(0.1 if remain >= 0.1 else remain)
+                    remain -= 0.1
+                if results["cancelled"]:
+                    break
 
             try:
                 illust_data = client.get_illust_detail(pixiv_id)

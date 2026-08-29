@@ -1150,13 +1150,15 @@ main {
     align-items: center;
     justify-content: center;
     padding: 16px;
+    padding-bottom: 64px;
     position: relative;
     min-width: 0;
+    overflow: hidden;
 }
 
 .viewer-right img {
     max-width: 100%;
-    max-height: calc(100vh - 90px);
+    max-height: 100%;
     object-fit: contain;
     border-radius: var(--radius-sm);
     box-shadow: 0 12px 50px rgba(0, 0, 0, 0.6);
@@ -1164,10 +1166,14 @@ main {
 }
 
 .v-nav {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 16px;
+    z-index: 20;
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-top: 14px;
 }
 
 .v-nav .v-page-btn {
@@ -1217,7 +1223,7 @@ main {
     font-size: 32px;
     line-height: 1;
     cursor: pointer;
-    z-index: 5;
+    z-index: 20;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1726,6 +1732,7 @@ main {
     border-radius: var(--radius-lg);
     padding: 20px;
     box-shadow: var(--shadow-sm);
+    overflow: hidden;
 }
 
 .image-viewer img {
@@ -2215,3 +2222,35 @@ html.safe-mode img {
 .btn-folder-ghost:hover {
     background: var(--accent-soft);
 }
+
+
+/* ===== 自定义右键菜单 ===== */
+.ctx-menu {
+    position: fixed;
+    z-index: 500;
+    min-width: 150px;
+    padding: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-lg);
+    animation: popIn 0.12s ease;
+    user-select: none;
+}
+.ctx-menu.hidden { display: none; }
+.ctx-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    background: transparent;
+    color: var(--text);
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+.ctx-item:hover { background: var(--accent-soft); color: var(--accent); }
+.ctx-item.danger { color: #e94560; }
+.ctx-item.danger:hover { background: rgba(233, 69, 96, 0.14); color: #fff; }

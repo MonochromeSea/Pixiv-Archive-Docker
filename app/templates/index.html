@@ -249,6 +249,11 @@
                 <span class="field-hint" id="proxyHint"></span>
             </div>
             <div class="settings-field">
+                <label for="settingSyncDelay">同步间隔（毫秒，防风控；0=不限速）</label>
+                <input type="number" id="settingSyncDelay" min="0" max="10000" step="100" placeholder="800">
+                <span class="field-hint" id="syncDelayHint"></span>
+            </div>
+            <div class="settings-field">
                 <label>直连 IP 管理</label>
                 <button onclick="refreshDirectIps()">🔄 刷新直连 IP（DoH 查询）</button>
                 <span class="field-hint" id="refreshIpHint"></span>
@@ -264,6 +269,9 @@
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- 自定义右键菜单 -->
+<div class="ctx-menu hidden" id="ctxMenu"></div>
 
 <script>
 "use strict";
@@ -957,7 +965,32 @@ async function showViewer(artworkId) {
     }
 }
 
+let _viewerZoom = 1;
+let _viewerPanX = 0, _viewerPanY = 0;
+
+function _viewerTransform() {
+    const img = $('vMainImage');
+    if (img) {
+        img.style.transformOrigin = 'center center';
+        img.style.transform = 'translate(' + _viewerPanX + 'px,' + _viewerPanY + 'px) scale(' + _viewerZoom + ')';
+    }
+}
+
+function resetViewerZoom() {
+    _viewerZoom = 1;
+    _viewerPanX = 0;
+    _viewerPanY = 0;
+    const img = $('vMainImage');
+    if (img) img.style.transform = '';
+}
+
+function applyViewerZoom(factor) {
+    _viewerZoom = Math.min(5, Math.max(0.2, _viewerZoom * factor));
+    _viewerTransform();
+}
+
 function renderViewerImage() {
+    resetViewerZoom();
     const img = _viewer.data.images[_viewer.idx];
     if (!img) { $('vMainImage').style.display = 'none'; return; }
     $('vMainImage').src = paImg('/image/' + encodeURI(img.path));
@@ -1044,6 +1077,7 @@ async function loadAdjacentNavPage(direction) {
 }
 
 function hideViewer() {
+    resetViewerZoom();
     $('viewerOverlay').classList.add('hidden');
     document.body.style.overflow = '';
     _viewer = { data: null, idx: 0 };
@@ -1400,9 +1434,11 @@ async function openSettings() {
         $('modeHint').textContent = data.connection_mode === 'direct' ? '直连模式：无需代理' : (data.connection_mode === 'proxy' ? '代理模式：使用下方代理地址' : '自动模式：直连失败自动回退代理');
         $('portHint').textContent = data.server_port ? `当前端口: ${data.server_port}（修改后需重启服务生效，默认 6814）` : '当前端口: 6814（修改后需重启服务生效）';
         $('tokenHint2').textContent = data.access_token_auto ? '局域网模式下自动生成，无固定令牌' : (data.access_token ? '当前使用固定令牌' : '未设置（非局域网模式无需令牌）');
+        $('syncDelayHint').textContent = data.sync_delay_ms != null ? `当前: ${data.sync_delay_ms} ms（0=不限速）` : '当前: 800 ms（0=不限速）';
         $('settingToken').value = '';
         $('settingDir').value = data.image_source_dir || '';
         $('settingProxy').value = data.proxy || '';
+        $('settingSyncDelay').value = data.sync_delay_ms != null ? data.sync_delay_ms : '';
         $('settingMode').value = data.connection_mode || 'auto';
         $('settingPort').value = data.server_port || '';
         $('settingAccessToken').value = data.access_token_auto ? '' : (data.access_token || '');
@@ -1440,18 +1476,20 @@ async function saveSettings() {
     const mode = $('settingMode').value;
     const port = $('settingPort').value.trim();
     const accessToken = $('settingAccessToken').value.trim();
+    const syncDelay = $('settingSyncDelay').value.trim();
     const msg = $('settingsMsg');
 
     const payload = {
         refresh_token: token,
         image_source_dir: dir,
         proxy: proxy,
-        connection_mode: mode
+        connection_mode: mode,
+        sync_delay_ms: syncDelay
     };
     if (port) payload.server_port = port;
     payload.access_token = accessToken;
 
-    if (!token && !dir && !proxy && !port && !accessToken) {
+    if (!token && !dir && !proxy && !port && !accessToken && !syncDelay) {
         msg.style.display = 'block';
         msg.textContent = '请至少填写一项';
         msg.style.color = '#e94560';
@@ -1526,6 +1564,128 @@ function sanitizeHtml(html) {
     }
     return template.innerHTML;
 }
+
+// ===== 自定义右键菜单 =====
+function showCtxMenu(x, y, items) {
+    const menu = $('ctxMenu');
+    menu.innerHTML = '';
+    items.forEach(it => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ctx-item' + (it.danger ? ' danger' : '');
+        b.textContent = it.label;
+        b.addEventListener('click', function () { hideCtxMenu(); it.action(); });
+        menu.appendChild(b);
+    });
+    menu.classList.remove('hidden');
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    const r = menu.getBoundingClientRect();
+    const nx = Math.min(x, window.innerWidth - r.width - 8);
+    const ny = Math.min(y, window.innerHeight - r.height - 8);
+    menu.style.left = Math.max(4, nx) + 'px';
+    menu.style.top = Math.max(4, ny) + 'px';
+}
+
+function hideCtxMenu() {
+    const menu = $('ctxMenu');
+    menu.classList.add('hidden');
+    menu.innerHTML = '';
+}
+
+document.addEventListener('contextmenu', function (e) {
+    const t = e.target;
+    if (t && (t.closest('input') || t.closest('textarea') || t.closest('[contenteditable="true"]'))) return;
+    e.preventDefault();
+
+    const tile = t.closest ? t.closest('.tile[data-id]') : null;
+    if (tile) {
+        const id = parseInt(tile.dataset.id, 10);
+        const pid = tile.dataset.pid || '';
+        const title = tile.dataset.title || ('Pixiv ID: ' + pid);
+        showCtxMenu(e.clientX, e.clientY, [
+            { label: '查看', action: function () { showViewer(id); } },
+            { label: '收藏', action: function () { openFavSelect(id); } },
+            { label: '删除', danger: true, action: function () { deleteArtworkFromTile(id, title); } },
+            { label: '复制 Pixiv ID', action: function () {
+                if (pid) { try { navigator.clipboard.writeText(pid); } catch (err) {} }
+            } },
+        ]);
+        return;
+    }
+
+    if (!document.getElementById('viewerOverlay').classList.contains('hidden')) {
+        const items = [
+            { label: '在文件夹中打开', action: function () { openInFolder(); } },
+            { label: '收藏', action: function () { openFavSelect(window._viewerArtworkId); } },
+            { label: '删除作品', danger: true, action: function () { deleteCurrent(); } },
+        ];
+        const prev = $('vPrevArt'), next = $('vNextArt');
+        if (prev && prev.style.display !== 'none') items.unshift({ label: '上一作品', action: function () { viewerArtworkNav(-1); } });
+        if (next && next.style.display !== 'none') items.push({ label: '下一作品', action: function () { viewerArtworkNav(1); } });
+        items.push({ label: '关闭查看器', action: function () { hideViewer(); } });
+        showCtxMenu(e.clientX, e.clientY, items);
+        return;
+    }
+
+    showCtxMenu(e.clientX, e.clientY, [
+        { label: '刷新', action: function () { location.reload(); } },
+        { label: '返回首页', action: function () { window.location.href = '/'; } },
+        { label: '切换主题', action: function () { toggleTheme(); } },
+        { label: '打开设置', action: function () { openSettings(); } },
+    ]);
+});
+
+document.addEventListener('click', function (e) {
+    if (!(e.target.closest && e.target.closest('#ctxMenu'))) hideCtxMenu();
+});
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') hideCtxMenu();
+});
+window.addEventListener('scroll', function () { hideCtxMenu(); }, true);
+window.addEventListener('resize', function () { hideCtxMenu(); });
+
+// 查看器滚轮缩放（双击还原）
+(function () {
+    const right = document.querySelector('.viewer-right');
+    if (!right) return;
+    // 禁止图片原生 HTML5 拖拽：消除拖动幽灵缩略图、避免 mouseup 被系统拖拽吞掉
+    document.addEventListener('dragstart', function (e) {
+        if (e.target && e.target.tagName === 'IMG') e.preventDefault();
+    });
+
+    right.addEventListener('wheel', function (e) {
+        if (e.deltaY !== 0) { e.preventDefault(); applyViewerZoom(e.deltaY < 0 ? 1.25 : 0.8); }
+    }, { passive: false });
+
+    let dragging = false, sx = 0, sy = 0, px = 0, py = 0;
+    right.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+        if (e.target.closest && (e.target.closest('button') || e.target.closest('a'))) return;
+        if (_viewerZoom <= 1) return;
+        e.preventDefault();
+        dragging = true;
+        sx = e.clientX; sy = e.clientY;
+        px = _viewerPanX; py = _viewerPanY;
+    });
+    document.addEventListener('mousemove', function (e) {
+        if (!dragging) return;
+        _viewerPanX = px + (e.clientX - sx);
+        _viewerPanY = py + (e.clientY - sy);
+        _viewerTransform();
+    });
+    document.addEventListener('mouseup', function () { dragging = false; });
+    // 防止任何中断导致拖动状态卡死（原生拖拽结束/失焦/标签页隐藏）
+    document.addEventListener('dragend', function () { dragging = false; });
+    window.addEventListener('blur', function () { dragging = false; });
+    document.addEventListener('visibilitychange', function () { dragging = false; });
+
+    const img = $('vMainImage');
+    if (img) {
+        img.draggable = false;
+        img.addEventListener('dblclick', function () { resetViewerZoom(); });
+    }
+})();
 
 // ===== Init =====
 // Debounced search
