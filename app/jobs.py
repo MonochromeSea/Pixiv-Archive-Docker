@@ -77,7 +77,11 @@ def is_busy():
 
 
 def start(kind, fn):
-    """启动后台任务。fn 接收一个 Job 实例。返回 (job_id, error)。"""
+    """启动后台任务。fn 接收一个 Job 实例。返回 (job_id, error)。
+
+    检查占用与注册新任务必须在同一把锁内完成，否则并发请求会同时通过
+    is_alive 检查，导致两个任务并行运行、互相覆盖 _active。
+    """
     with _lock:
         active = _active["thread"]
         if active is not None and active.is_alive():
@@ -89,26 +93,26 @@ def start(kind, fn):
             for k in list(_jobs.keys())[: len(_jobs) - _MAX_JOBS]:
                 _jobs.pop(k, None)
 
-    def run():
-        try:
-            fn(job)
-            if job.state["status"] == "running":
-                job.set_status("done")
-        except Exception as e:
-            job.set_status("error")
-            job.set_error({
-                "code": "INTERNAL",
-                "message": str(e),
-                "detail": traceback.format_exc(),
-            })
-            job.update(message="任务执行出错")
-        finally:
-            with _lock:
-                if _active["thread"] is thread:
-                    _active["thread"] = None
+        def run():
+            try:
+                fn(job)
+                if job.state["status"] == "running":
+                    job.set_status("done")
+            except Exception as e:
+                job.set_status("error")
+                job.set_error({
+                    "code": "INTERNAL",
+                    "message": str(e),
+                    "detail": traceback.format_exc(),
+                })
+                job.update(message="任务执行出错")
+            finally:
+                with _lock:
+                    if _active["thread"] is thread:
+                        _active["thread"] = None
 
-    thread = threading.Thread(target=run, name=f"job-{kind}", daemon=True)
-    with _lock:
+        thread = threading.Thread(target=run, name=f"job-{kind}", daemon=True)
         _active["thread"] = thread
+
     thread.start()
     return job.job_id, None

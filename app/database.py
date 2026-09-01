@@ -10,7 +10,9 @@ DB_PATH = os.path.join(paths.DATA_DIR, "archive.db")
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    # timeout=30：任务（同步/扫描）持有写事务期间，UI 发起的并发写等待锁而不是 5 秒即报
+    # "database is locked"
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -99,6 +101,16 @@ def init_db():
             PRIMARY KEY (favorite_id, artwork_id),
             FOREIGN KEY (favorite_id) REFERENCES favorites(id) ON DELETE CASCADE,
             FOREIGN KEY (artwork_id) REFERENCES artworks(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            pixiv_user_id INTEGER PRIMARY KEY,
+            name TEXT,
+            last_pid INTEGER,
+            auto_download INTEGER DEFAULT 1,
+            last_checked TEXT,
+            last_result TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
         );
 
         CREATE INDEX IF NOT EXISTS idx_artworks_pixiv_id ON artworks(pixiv_id);

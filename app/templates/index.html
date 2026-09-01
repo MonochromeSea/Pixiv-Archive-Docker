@@ -13,6 +13,9 @@
                 if (localStorage.getItem('pa-safe') === '1') {
                     document.documentElement.classList.add('safe-mode');
                 }
+                if (localStorage.getItem('pa-sidebar') === 'collapsed') {
+                    document.documentElement.classList.add('sb-collapsed');
+                }
             } catch (e) {}
         })();
     </script>
@@ -22,35 +25,73 @@
 </head>
 <body>
 
-<header class="topbar">
-    <div class="brand"><a href="/" class="brand-text">Pixiv Archive</a></div>
-    <div class="search-box">
-        <input type="text" id="searchInput" placeholder="搜索标题 / 作者 / 标签 / Pixiv ID..."
-               autocomplete="off">
-        <button onclick="doSearch()">搜索</button>
-    </div>
-    <select id="sortSelect" onchange="onSortChange()">
-        <option value="id">添加时间</option>
-        <option value="pixiv_id">Pixiv ID</option>
-        <option value="title">标题</option>
-        <option value="create_date">创作时间</option>
-    </select>
-    <select id="orderSelect" onchange="onSortChange()">
-        <option value="desc">降序</option>
-        <option value="asc">升序</option>
-    </select>
-    <button class="top-btn" id="btnR18" onclick="cycleR18()" title="切换 R18 显示模式">R18：全部</button>
-    <button class="top-btn" id="btnDeleted" onclick="toggleDeletedFilter()" title="只看已删除作品">已删除</button>
-    <button class="top-btn" id="btnAuthors" onclick="switchView('authors')">作者列表</button>
-    <button class="top-btn" id="btnTags" onclick="switchView('tags')">标签列表</button>
-    <button class="top-btn" id="btnFavorites" onclick="switchView('favorites')">收藏夹</button>
-    <button class="top-btn" onclick="openSettings()">⚙ 设置</button>
-    <button class="top-btn" id="btnTheme" onclick="toggleTheme()" title="切换主题">☀️</button>
-    <span class="safe-badge" id="safeBadge" style="display:none;">🔒 安全模式</span>
-    <span class="stats" id="stats"></span>
-</header>
+{% include 'icons.html' %}
 
-<main>
+<aside class="sidebar">
+    <div class="brand-row">
+        <div class="brand"><a href="/" class="brand-text">Pixiv Archive</a></div>
+        <button class="sb-toggle" id="btnSidebar" onclick="toggleSidebar()" title="收起侧栏"></button>
+    </div>
+    <div class="sidebar-body">
+        <nav>
+            <button class="side-nav-item active" id="btnGallery" onclick="switchView('gallery')" title="画廊">
+                <svg class="icon"><use href="#i-image"/></svg><span class="nav-label">画廊</span>
+            </button>
+            <button class="side-nav-item" id="btnAuthors" onclick="switchView('authors')" title="作者列表">
+                <svg class="icon"><use href="#i-users"/></svg><span class="nav-label">作者列表</span>
+            </button>
+            <button class="side-nav-item" id="btnTags" onclick="switchView('tags')" title="标签列表">
+                <svg class="icon"><use href="#i-tag"/></svg><span class="nav-label">标签列表</span>
+            </button>
+            <button class="side-nav-item" id="btnFavorites" onclick="switchView('favorites')" title="收藏夹">
+                <svg class="icon"><use href="#i-heart"/></svg><span class="nav-label">收藏夹</span>
+            </button>
+            <button class="side-nav-item" id="btnSubscriptions" onclick="switchView('subscriptions')" title="订阅">
+                <svg class="icon"><use href="#i-rss"/></svg><span class="nav-label">订阅</span>
+            </button>
+        </nav>
+        <div class="side-label">操作</div>
+        <button class="side-nav-item" id="btnSync" onclick="startJob('sync')" title="同步元数据">
+            <svg class="icon"><use href="#i-sync"/></svg><span class="nav-label">同步元数据</span>
+        </button>
+        <button class="side-nav-item" id="btnScan" onclick="startJob('scan')" title="扫描图片">
+            <svg class="icon"><use href="#i-scan"/></svg><span class="nav-label">扫描图片</span>
+        </button>
+        <button class="side-nav-item" onclick="openAuthorDownload()" title="按作者下载">
+            <svg class="icon"><use href="#i-download"/></svg><span class="nav-label">按作者下载</span>
+        </button>
+        <button class="side-nav-item" id="btnSubCheck" onclick="startJob('subscription')" title="检查订阅更新">
+            <svg class="icon"><use href="#i-bell"/></svg><span class="nav-label">订阅更新</span>
+        </button>
+        <div class="sidebar-footer">
+            <span class="safe-badge" id="safeBadge" style="display:none;">
+                <svg class="icon"><use href="#i-lock"/></svg><span class="sb-text">安全模式</span>
+            </span>
+            <button class="side-nav-item" id="btnTheme" onclick="toggleTheme()" title="切换主题"></button>
+            <button class="side-nav-item" onclick="openSettings()" title="设置">
+                <svg class="icon"><use href="#i-settings"/></svg><span class="nav-label">设置</span>
+            </button>
+            <div class="side-stats" id="stats"></div>
+        </div>
+    </div>
+</aside>
+
+<div class="content">
+    <header class="content-topbar">
+        <div class="search-box">
+            <svg class="icon"><use href="#i-search"/></svg>
+            <input type="text" id="searchInput" placeholder="搜索标题 / 作者 / 标签 / Pixiv ID..."
+                   autocomplete="off">
+        </div>
+        <div class="sort-widget">
+            <button class="top-btn" id="sortBtn" onclick="toggleSortMenu()" title="点击切换排序方式，再次点击当前项切换升/降序">添加时间 ▼</button>
+            <div class="sort-menu hidden" id="sortMenu"></div>
+        </div>
+        <button class="top-btn" id="btnR18" onclick="cycleR18()" title="切换 R18 显示模式">R18：全部</button>
+        <button class="top-btn" id="btnDeleted" onclick="toggleDeletedFilter()" title="只看已删除作品">已删除</button>
+    </header>
+
+    <main>
     <!-- Gallery view -->
     <div class="view active" id="viewGallery">
         <div class="view-header" id="galleryHeader" style="display:none;">
@@ -85,16 +126,32 @@
     <div class="view" id="viewFavorites">
         <div class="view-header">
             <span>收藏夹</span>
-            <button class="top-btn" onclick="showCreateFavorite()">＋ 新建收藏夹</button>
+            <button class="top-btn" onclick="showCreateFavorite()">
+                <svg class="icon"><use href="#i-plus"/></svg>新建收藏夹
+            </button>
         </div>
         <div id="favoriteGrid" class="favorites-grid"></div>
     </div>
-</main>
 
-<!-- Floating action panel -->
-<div class="fab-panel">
-    <button class="fab secondary" id="btnSync" onclick="startJob('sync')">同步元数据</button>
-    <button class="fab" id="btnScan" onclick="startJob('scan')">扫描图片</button>
+    <!-- Subscriptions view -->
+    <div class="view" id="viewSubscriptions">
+        <div class="view-header">
+            <span>画师订阅</span>
+            <div class="sub-header-actions">
+                <button class="top-btn" onclick="openSubImport()">
+                    <svg class="icon"><use href="#i-users"/></svg>从关注/收藏导入
+                </button>
+                <button class="top-btn" onclick="openSubAdd()">
+                    <svg class="icon"><use href="#i-plus"/></svg>订阅画师
+                </button>
+                <button class="top-btn" onclick="startJob('subscription')">
+                    <svg class="icon"><use href="#i-bell"/></svg>全部检查
+                </button>
+            </div>
+        </div>
+        <div id="subscriptionGrid" class="favorites-grid subscriptions-grid"></div>
+    </div>
+    </main>
 </div>
 
 <!-- Batch action bar (appears when images are selected) -->
@@ -142,7 +199,9 @@
 <!-- Viewer overlay (left info / right image) -->
 <div class="viewer-overlay hidden" id="viewerOverlay">
     <div class="viewer-left">
-        <button class="viewer-close" onclick="hideViewer()">← 返回</button>
+        <button class="viewer-close" onclick="hideViewer()">
+            <svg class="icon"><use href="#i-arrow-left"/></svg><span>返回</span>
+        </button>
         <div class="v-title" id="vTitle"></div>
         <div class="v-author" id="vAuthor"></div>
         <div class="v-tags" id="vTags"></div>
@@ -153,20 +212,82 @@
         <div class="v-desc" id="vDesc" style="display:none;"></div>
         <div class="v-meta" id="vMeta"></div>
         <div class="v-actions">
-            <button class="v-fav-btn" id="vFavBtn" onclick="openFavSelect(window._viewerArtworkId)">☆ 收藏</button>
-            <button class="v-folder-btn" onclick="openInFolder()" title="在文件夹中打开">📁</button>
-            <button class="v-delete" onclick="deleteCurrent()">删除作品</button>
+            <button class="v-fav-btn" id="vFavBtn" onclick="openFavSelect(window._viewerArtworkId)">
+                <svg class="icon"><use href="#i-star-o"/></svg><span>收藏</span>
+            </button>
+            <button class="v-folder-btn" onclick="openInFolder()" title="在文件夹中打开">
+                <svg class="icon"><use href="#i-folder"/></svg>
+            </button>
+            <button class="v-delete" onclick="deleteCurrent()">
+                <svg class="icon"><use href="#i-trash"/></svg><span>删除作品</span>
+            </button>
         </div>
     </div>
     <div class="viewer-right">
-        <button class="v-art-btn v-art-prev" id="vPrevArt" onclick="viewerArtworkNav(-1)" title="上一个作品">‹</button>
+        <button class="v-art-btn v-art-prev" id="vPrevArt" onclick="viewerArtworkNav(-1)" title="上一个作品">
+            <svg class="icon"><use href="#i-chevron-left"/></svg>
+        </button>
         <div class="v-loading" id="vLoading" style="display:none;">加载中...</div>
         <img id="vMainImage" alt="" style="display:none;">
-        <button class="v-art-btn v-art-next" id="vNextArt" onclick="viewerArtworkNav(1)" title="下一个作品">›</button>
+        <button class="v-art-btn v-art-next" id="vNextArt" onclick="viewerArtworkNav(1)" title="下一个作品">
+            <svg class="icon"><use href="#i-chevron-right"/></svg>
+        </button>
         <div class="v-nav" id="vNav" style="display:none;">
-            <button id="vPrev" class="v-page-btn" onclick="viewerNav(-1)" title="上一页">◀</button>
+            <button id="vPrev" class="v-page-btn" onclick="viewerNav(-1)" title="上一页">
+                <svg class="icon"><use href="#i-chevron-left"/></svg>
+            </button>
             <span class="v-page" id="vPageIndicator"></span>
-            <button id="vNext" class="v-page-btn" onclick="viewerNav(1)" title="下一页">▶</button>
+            <button id="vNext" class="v-page-btn" onclick="viewerNav(1)" title="下一页">
+                <svg class="icon"><use href="#i-chevron-right"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Add subscription overlay -->
+<div id="subAddOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeSubAdd()">
+    <div class="settings-panel" style="width:420px;">
+        <h3>订阅画师</h3>
+        <div class="settings-field">
+            <label for="subAddInput">画师 Pixiv ID（画师主页 URL 中的数字 ID）</label>
+            <div style="display:flex;gap:8px;">
+                <input type="text" id="subAddInput" placeholder="例如 15278716" autocomplete="off"
+                       style="flex:1;" oninput="resetSubPreview()">
+                <button onclick="previewSubAdd()" class="btn-folder-ghost" style="flex:none;">查询</button>
+            </div>
+            <span class="field-hint" id="subPreviewHint"></span>
+        </div>
+        <div class="settings-field">
+            <label class="fav-check">
+                <input type="checkbox" id="subAddCheckNow" checked>
+                添加后立即检查并下载作品
+            </label>
+            <span class="field-hint">首次订阅会下载该画师全部历史作品（文件已存在的会自动跳过），之后每次检查只下载新增插画。</span>
+        </div>
+        <div id="subAddMsg" class="settings-msg" style="display:none;"></div>
+        <div class="settings-actions">
+            <button onclick="confirmSubAdd()" class="btn-primary">订阅</button>
+            <button onclick="closeSubAdd()">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- Import subscriptions overlay -->
+<div id="subImportOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeSubImport()">
+    <div class="settings-panel" style="width:420px;">
+        <h3>导入订阅</h3>
+        <div class="settings-field">
+            <label>导入来源</label>
+            <select id="subImportSource">
+                <option value="following">关注的画师</option>
+                <option value="bookmarks">收藏作品对应的画师</option>
+                <option value="both">关注 + 收藏</option>
+            </select>
+            <span class="field-hint">从当前 Refresh Token 所属的 Pixiv 账号拉取列表，批量添加为订阅（已订阅的自动跳过）。导入后仍需点「全部检查」下载作品。</span>
+        </div>
+        <div class="settings-actions">
+            <button onclick="confirmSubImport()" class="btn-primary">开始导入</button>
+            <button onclick="closeSubImport()">取消</button>
         </div>
     </div>
 </div>
@@ -185,6 +306,40 @@
             <button onclick="closeFavSelect()">取消</button>
         </div>
         <div id="favSelectMsg" class="settings-msg" style="display:none;"></div>
+    </div>
+</div>
+
+<!-- Create favorite overlay -->
+<div id="createFavOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeCreateFavorite()">
+    <div class="settings-panel" style="width:400px;">
+        <h3>新建收藏夹</h3>
+        <div class="settings-field">
+            <label for="createFavName">收藏夹名称</label>
+            <input type="text" id="createFavName" placeholder="输入收藏夹名称" autocomplete="off"
+                   onkeydown="if(event.key==='Enter')confirmCreateFavorite()">
+        </div>
+        <div id="createFavMsg" class="settings-msg" style="display:none;"></div>
+        <div class="settings-actions">
+            <button onclick="confirmCreateFavorite()" class="btn-primary">创建</button>
+            <button onclick="closeCreateFavorite()">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- Author download overlay -->
+<div id="authorDownloadOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeAuthorDownload()">
+    <div class="settings-panel">
+        <h3>按作者下载</h3>
+        <div class="settings-field">
+            <label for="authorDlInput">作者 Pixiv ID（作者主页 URL 中的数字 ID）</label>
+            <input type="text" id="authorDlInput" placeholder="输入作者 ID，例如 2" autocomplete="off">
+            <span class="field-hint">将按顺序下载该作者的全部插画与漫画作品，已存在的作品会自动跳过。</span>
+        </div>
+        <div class="settings-actions">
+            <button onclick="confirmAuthorDownload()" class="btn-primary">开始下载</button>
+            <button onclick="closeAuthorDownload()">取消</button>
+        </div>
+        <div id="authorDlMsg" class="settings-msg" style="display:none;"></div>
     </div>
 </div>
 
@@ -229,7 +384,9 @@
                 <span class="field-hint">开启后所有图片将模糊显示，适合演示 / 屏幕共享时保护内容。</span>
             </div>
             <div class="settings-field" id="openExternalField" style="display:none;">
-                <button onclick="openExternalBrowser()">↗ 在外部浏览器中打开</button>
+                <button class="btn-folder-ghost" onclick="openExternalBrowser()">
+                    <svg class="icon"><use href="#i-external"/></svg>在外部浏览器中打开
+                </button>
                 <span class="field-hint">在系统浏览器中打开当前应用（桌面窗口模式下可用）。</span>
             </div>
         </div>
@@ -254,8 +411,21 @@
                 <span class="field-hint" id="syncDelayHint"></span>
             </div>
             <div class="settings-field">
+                <label class="fav-check">
+                    <input type="checkbox" id="settingMirrorToggle" onchange="onMirrorToggleChange()">
+                    用第三方图站接管图片下载
+                </label>
+                <div id="mirrorDomainField" style="display:none;">
+                    <label for="settingImageMirror" style="display:block;margin:6px 0 4px;">镜像域名</label>
+                    <input type="text" id="settingImageMirror" placeholder="例如 i.pixiv.re（可带路径前缀）" autocomplete="off">
+                </div>
+                <span class="field-hint" id="mirrorHint"></span>
+            </div>
+            <div class="settings-field">
                 <label>直连 IP 管理</label>
-                <button onclick="refreshDirectIps()">🔄 刷新直连 IP（DoH 查询）</button>
+                <button class="btn-folder-ghost" onclick="refreshDirectIps()">
+                    <svg class="icon"><use href="#i-sync"/></svg>刷新直连 IP（DoH 查询）
+                </button>
                 <span class="field-hint" id="refreshIpHint"></span>
             </div>
         </div>
@@ -284,6 +454,8 @@ let currentTotal = 0;
 let currentFilter = { type: null, value: '' };
 let currentSearch = '';
 let _searchTimer = null;
+let _sortKey = 'id';
+let _sortOrder = 'desc';
 let _viewer = { data: null, idx: 0 };
 let _navIds = [];
 let _navIndex = -1;
@@ -297,13 +469,33 @@ let _selectedIds = new Set();
 // ===== Elements =====
 const $ = id => document.getElementById(id);
 
+// ===== Sidebar collapse =====
+function updateSidebarToggle() {
+    const collapsed = document.documentElement.classList.contains('sb-collapsed');
+    const btn = $('btnSidebar');
+    if (btn) {
+        btn.title = collapsed ? '展开侧栏' : '收起侧栏';
+        btn.innerHTML = '<svg class="icon" style="transform:rotate(' + (collapsed ? 180 : 0) + 'deg)"><use href="#i-panel"/></svg>';
+    }
+}
+
+function toggleSidebar() {
+    const collapsed = document.documentElement.classList.toggle('sb-collapsed');
+    try { localStorage.setItem('pa-sidebar', collapsed ? 'collapsed' : 'expanded'); } catch (e) {}
+    updateSidebarToggle();
+}
+
 // ===== View switching =====
 function switchView(view) {
+    const viewChanged = currentView !== view;
     currentView = view;
-    ['viewGallery', 'viewAuthors', 'viewTags', 'viewFavorites'].forEach(v => $(v).classList.toggle('active', v === 'view' + view[0].toUpperCase() + view.slice(1)));
+    ['viewGallery', 'viewAuthors', 'viewTags', 'viewFavorites', 'viewSubscriptions'].forEach(v => $(v).classList.toggle('active', v === 'view' + view[0].toUpperCase() + view.slice(1)));
+    $('btnGallery').classList.toggle('active', view === 'gallery');
+    $('btnSubscriptions').classList.toggle('active', view === 'subscriptions');
     $('btnAuthors').classList.toggle('active', view === 'authors');
     $('btnTags').classList.toggle('active', view === 'tags');
     $('btnFavorites').classList.toggle('active', view === 'favorites');
+    if (viewChanged) window.scrollTo({ top: 0 });
     if (view === 'gallery' && $('wall').children.length === 0 && currentTotal === 0) {
         loadGallery();
     } else if (view === 'authors' && $('authorList').children.length === 0) {
@@ -312,11 +504,63 @@ function switchView(view) {
         loadTagsView();
     } else if (view === 'favorites' && $('favoriteGrid').children.length === 0) {
         loadFavoritesView();
+    } else if (view === 'subscriptions' && $('subscriptionGrid').children.length === 0) {
+        loadSubscriptionsView();
     }
 }
 
 // ===== Gallery =====
-function onSortChange() {
+const SORT_LABELS = {
+    'id': '添加时间',
+    'pixiv_id': 'Pixiv ID',
+    'title': '标题',
+    'create_date': '创作时间',
+    'random': '随机',
+};
+
+function sortArrowsHtml(key) {
+    if (key === 'random') return null;
+    const activeDir = key === _sortKey ? _sortOrder : null;
+    const span = dir => '<span class="sort-arrow' + (activeDir === dir ? ' active' : ' muted') + '">' + (dir === 'asc' ? '↑' : '↓') + '</span>';
+    return span('asc') + span('desc');
+}
+
+function updateSortBtn() {
+    const btn = $('sortBtn');
+    if (!btn) return;
+    const arrows = sortArrowsHtml(_sortKey);
+    btn.innerHTML = (SORT_LABELS[_sortKey] || SORT_LABELS['id']) + (arrows ? ' ' + arrows : '');
+}
+
+function toggleSortMenu() {
+    const menu = $('sortMenu');
+    if (!menu) return;
+    if (!menu.classList.contains('hidden')) { menu.classList.add('hidden'); return; }
+
+    menu.innerHTML = '';
+    Object.keys(SORT_LABELS).forEach(key => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        const active = key === _sortKey;
+        b.className = 'sort-menu-item' + (active ? ' active' : '');
+        const arrows = sortArrowsHtml(key);
+        b.innerHTML = SORT_LABELS[key] + (arrows ? ' ' + arrows : '');
+        b.addEventListener('click', function () { chooseSort(key); });
+        menu.appendChild(b);
+    });
+
+    menu.classList.remove('hidden');
+}
+
+function chooseSort(key) {
+    $('sortMenu').classList.add('hidden');
+    if (key !== _sortKey) {
+        _sortKey = key;
+        if (key !== 'random') _sortOrder = 'desc';
+    } else if (key !== 'random') {
+        _sortOrder = _sortOrder === 'desc' ? 'asc' : 'desc';
+    }
+    updateSortBtn();
     if (currentView === 'gallery') loadGallery(1);
 }
 
@@ -325,7 +569,17 @@ function doSearch() {
     if (q === currentSearch) return;
     currentSearch = q;
     if (currentView !== 'gallery') switchView('gallery');
-    if (!q) { loadGallery(1); return; }
+    // 无筛选条件时，用头部状态条提示当前处于搜索结果（clearFilter 会连搜索一起清掉）
+    if (!currentFilter.type) {
+        if (q) {
+            $('galleryHeaderText').textContent = '搜索：' + q;
+            $('galleryHeader').style.display = 'flex';
+            $('filterClear').style.display = 'inline-block';
+        } else {
+            $('galleryHeader').style.display = 'none';
+            $('filterClear').style.display = 'none';
+        }
+    }
     loadGallery(1);
 }
 
@@ -353,8 +607,8 @@ async function loadGallery(page = 1) {
     $('loading').style.display = 'block';
     $('empty').style.display = 'none';
 
-    const sort = $('sortSelect').value;
-    const order = $('orderSelect').value;
+    const sort = _sortKey;
+    const order = _sortOrder;
 
     _navCtx = { type: 'all', q: currentSearch, tag: '', author: '', favoriteId: 0, sort, order, page };
     if (currentFilter.type === 'tag') _navCtx.tag = currentFilter.value;
@@ -386,7 +640,7 @@ async function loadGallery(page = 1) {
 function buildGalleryUrl(page, ctx) {
     let url;
     if (ctx.type === 'search') {
-        url = `/api/search?q=${encodeURIComponent(ctx.q)}&page=${page}&per_page=100`;
+        url = `/api/search?q=${encodeURIComponent(ctx.q)}&page=${page}&per_page=100&sort=${ctx.sort}&order=${ctx.order}`;
         if (ctx.tag) url += `&tag=${encodeURIComponent(ctx.tag)}`;
         if (ctx.author) url += `&author=${encodeURIComponent(ctx.author)}`;
         if (ctx.favoriteId) url += `&favorite_id=${ctx.favoriteId}`;
@@ -444,14 +698,14 @@ function renderGallery(data) {
 
         tile.innerHTML = `
             ${a.thumb_path ? `<img src="/thumbnails/${a.pixiv_id}.jpg" alt="" loading="lazy">` : ''}
-            <span class="tile-check${selected ? ' checked' : ''}" onclick="event.stopPropagation();">
+            <span class="tile-check${selected ? ' checked' : ''}" onclick="event.stopPropagation();if(event.target.tagName!=='INPUT')toggleTileCheck(this, ${a.id})">
                 <input type="checkbox" class="tile-checkbox" ${selected ? 'checked' : ''} onchange="toggleSelect(${a.id}, this)">
             </span>
             <div class="tile-badges">${badges}</div>
             <div class="tile-title">${escapeHtml(title)}</div>
             <div class="tile-actions">
-                <button class="tile-action-btn${favCls}" onclick="event.stopPropagation();event.preventDefault();openFavSelect(${a.id})" title="${a.is_favorited ? '已收藏（点击管理）' : '收藏'}">${a.is_favorited ? '★' : '☆'}</button>
-                <button class="tile-action-btn del" onclick="event.stopPropagation();event.preventDefault();deleteArtworkFromTile(${a.id}, '${escapeAttr(title)}')" title="删除">🗑</button>
+                <button class="tile-action-btn${favCls}" onclick="event.stopPropagation();event.preventDefault();openFavSelect(${a.id})" title="${a.is_favorited ? '已收藏（点击管理）' : '收藏'}"><svg class="icon"><use href="#i-${a.is_favorited ? 'star' : 'star-o'}"/></svg></button>
+                <button class="tile-action-btn del" onclick="event.stopPropagation();event.preventDefault();deleteArtworkFromTile(${a.id}, '${escapeAttr(title)}')" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
             </div>`;
 
         frag.appendChild(tile);
@@ -459,6 +713,14 @@ function renderGallery(data) {
     wall.appendChild(frag);
 
     renderPagination(data);
+}
+
+function toggleTileCheck(span, artworkId) {
+    const cb = span.querySelector('.tile-checkbox');
+    if (cb) {
+        cb.checked = !cb.checked;
+        toggleSelect(artworkId, cb);
+    }
 }
 
 function toggleSelect(artworkId, checkbox) {
@@ -590,7 +852,7 @@ async function refreshTileFavState(artworkId) {
         const btn = tile.querySelector('.tile-action-btn');
         if (btn) {
             btn.classList.toggle('faved', hasFav);
-            btn.textContent = hasFav ? '★' : '☆';
+            btn.innerHTML = '<svg class="icon"><use href="#i-' + (hasFav ? 'star' : 'star-o') + '"/></svg>';
             btn.title = hasFav ? '已收藏（点击管理）' : '收藏';
         }
     } catch (e) {}
@@ -727,7 +989,7 @@ async function loadFavoritesView() {
             card.innerHTML = `
                 <div class="folder-thumbs" onclick="filterByFavorite(${f.id}, '${escapeAttr(f.name)}')">${thumbs || '<div class="folder-empty">空</div>'}</div>
                 <div class="folder-info" onclick="filterByFavorite(${f.id}, '${escapeAttr(f.name)}')">
-                    <div class="folder-name">📁 ${escapeHtml(f.name)}</div>
+                    <div class="folder-name"><svg class="icon"><use href="#i-folder"/></svg><span>${escapeHtml(f.name)}</span></div>
                     <div class="folder-meta">${f.artwork_count} 个作品</div>
                 </div>
                 <button class="folder-delete" onclick="deleteFavorite(${f.id}, '${escapeAttr(f.name)}')" title="删除收藏夹">×</button>`;
@@ -751,9 +1013,21 @@ function filterByFavorite(favId, name) {
 }
 
 function showCreateFavorite() {
-    const name = prompt('请输入收藏夹名称：');
-    if (!name || !name.trim()) return;
-    createFavorite(name.trim());
+    $('createFavName').value = '';
+    $('createFavMsg').style.display = 'none';
+    $('createFavOverlay').classList.remove('hidden');
+    $('createFavName').focus();
+}
+
+function closeCreateFavorite() {
+    $('createFavOverlay').classList.add('hidden');
+}
+
+function confirmCreateFavorite() {
+    const name = $('createFavName').value.trim();
+    const msg = $('createFavMsg');
+    if (!name) { msg.textContent = '请输入收藏夹名称'; msg.style.display = 'block'; msg.style.color = '#e94560'; return; }
+    createFavorite(name);
 }
 
 async function createFavorite(name) {
@@ -765,6 +1039,7 @@ async function createFavorite(name) {
         });
         const data = await resp.json();
         if (data.error) { showToast('创建失败：' + data.error); return; }
+        closeCreateFavorite();
         showToast('已创建收藏夹');
         loadFavoritesView();
     } catch (e) {
@@ -782,6 +1057,149 @@ async function deleteFavorite(favId, name) {
     } catch (e) {
         showToast('删除失败：' + e.message);
     }
+}
+
+// ===== Subscriptions =====
+let _subPreviewName = '';
+
+async function loadSubscriptionsView() {
+    const grid = $('subscriptionGrid');
+    grid.innerHTML = '<div class="loading">加载中...</div>';
+    try {
+        const resp = await fetch('/api/subscriptions');
+        const subs = await resp.json();
+        grid.innerHTML = '';
+        if (!subs.length) {
+            grid.innerHTML = '<div class="empty-state">还没有订阅画师。\n点「订阅画师」输入 Pixiv ID，或从账号的关注/收藏批量导入。</div>';
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        subs.forEach(s => {
+            const card = document.createElement('div');
+            card.className = 'folder-card sub-card';
+            const name = escapeHtml(s.name || ('画师 ' + s.pixiv_user_id));
+            let lastSummary = '尚未检查';
+            if (s.last_pid) lastSummary = `游标 PID：${s.last_pid}`;
+            let resultLine = '';
+            if (s.last_result) {
+                try {
+                    const r = JSON.parse(s.last_result);
+                    resultLine = `上次：新 ${r.new || 0} · 下 ${r.downloaded || 0}${r.failed ? ' · 败 ' + r.failed : ''}`;
+                } catch (e) {}
+            }
+            const checkedOn = s.auto_download ? 'checked' : '';
+            card.innerHTML = `
+                <div class="folder-info sub-info">
+                    <div class="folder-name">
+                        <svg class="icon"><use href="#i-rss"/></svg><span>${name}</span>
+                    </div>
+                    <div class="folder-meta">ID ${s.pixiv_user_id} · 本地 ${s.local_works || 0} 件 · ${lastSummary}</div>
+                    <div class="folder-meta">${escapeHtml(s.last_checked || '')}${resultLine ? ' — ' + escapeHtml(resultLine) : ''}</div>
+                </div>
+                <div class="sub-actions">
+                    <label class="fav-check sub-auto">
+                        <input type="checkbox" ${checkedOn} onchange="toggleSubscriptionAuto(${s.pixiv_user_id})">
+                        自动下载
+                    </label>
+                    <button class="batch-btn" onclick="checkOneSubscription(${s.pixiv_user_id})">检查</button>
+                    <button class="batch-btn danger" onclick="deleteSubscription(${s.pixiv_user_id}, '${escapeAttr(s.name || '')}')">退订</button>
+                </div>`;
+            frag.appendChild(card);
+        });
+        grid.appendChild(frag);
+    } catch (e) {
+        grid.innerHTML = '<div class="empty-state">加载失败</div>';
+    }
+}
+
+function toggleSubscriptionAuto(uid) {
+    fetch(`/api/subscriptions/${uid}/toggle`, { method: 'POST' })
+        .then(r => r.json())
+        .then(() => loadSubscriptionsView())
+        .catch(() => showToast('操作失败'));
+}
+
+function deleteSubscription(uid, name) {
+    if (!confirm(`确认取消订阅 "${name || uid}"？（已下载的作品会保留）`)) return;
+    fetch(`/api/subscriptions/${uid}`, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(() => { showToast('已取消订阅'); loadSubscriptionsView(); })
+        .catch(() => showToast('操作失败'));
+}
+
+function checkOneSubscription(uid) {
+    launchJob(`/api/subscriptions/${uid}/check`, 'subscription', 'POST');
+}
+
+function openSubAdd() {
+    $('subAddInput').value = '';
+    $('subAddMsg').style.display = 'none';
+    $('subPreviewHint').textContent = '';
+    $('subAddCheckNow').checked = true;
+    _subPreviewName = '';
+    $('subAddOverlay').classList.remove('hidden');
+    $('subAddInput').focus();
+}
+
+function closeSubAdd() {
+    $('subAddOverlay').classList.add('hidden');
+}
+
+function resetSubPreview() {
+    $('subPreviewHint').textContent = '';
+    _subPreviewName = '';
+}
+
+function previewSubAdd() {
+    const id = $('subAddInput').value.trim();
+    const hint = $('subPreviewHint');
+    if (!/^\d+$/.test(id)) { hint.textContent = '请先输入数字画师 ID'; return; }
+    hint.textContent = '正在查询…';
+    fetch('/api/subscriptions/preview/' + id)
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { hint.textContent = (d.error && (d.error.hint || d.error.message)) || '查询失败'; return; }
+            _subPreviewName = d.name || '';
+            hint.textContent = `${d.name}：检测到 ${d.count} 件新作品${d.subscribed ? '（已在订阅列表）' : '（按最近 3 页估算）'}`;
+        })
+        .catch(() => { hint.textContent = '查询失败：无法连接服务器'; });
+}
+
+function confirmSubAdd() {
+    const id = $('subAddInput').value.trim();
+    const msg = $('subAddMsg');
+    if (!/^\d+$/.test(id)) { msg.textContent = '画师 ID 应为数字'; msg.style.display = 'block'; return; }
+    fetch('/api/subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: parseInt(id, 10), name: _subPreviewName })
+    })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { msg.textContent = d.error.message || '添加失败'; msg.style.display = 'block'; return; }
+            closeSubAdd();
+            showToast(d.exists ? '该画师已在订阅列表中' : '已添加订阅');
+            switchView('subscriptions');
+            loadSubscriptionsView();
+            if ($('subAddCheckNow').checked) {
+                launchJob(`/api/subscriptions/${id}/check`, 'subscription', 'POST');
+            }
+        })
+        .catch(() => { msg.textContent = '添加失败：无法连接服务器'; msg.style.display = 'block'; });
+}
+
+function openSubImport() {
+    $('subImportOverlay').classList.remove('hidden');
+}
+
+function closeSubImport() {
+    $('subImportOverlay').classList.add('hidden');
+}
+
+function confirmSubImport() {
+    const source = $('subImportSource').value;
+    closeSubImport();
+    launchJob('/api/subscriptions/import?source=' + encodeURIComponent(source), 'subscription_import');
 }
 
 // ===== Favorite select dialog =====
@@ -945,7 +1363,7 @@ async function showViewer(artworkId) {
         const hasFav = (data.favorites || []).length > 0;
         const favBtn = $('vFavBtn');
         favBtn.classList.toggle('faved', hasFav);
-        favBtn.textContent = hasFav ? '★ 已收藏' : '☆ 收藏';
+        favBtn.innerHTML = '<svg class="icon"><use href="#i-' + (hasFav ? 'star' : 'star-o') + '"/></svg><span>' + (hasFav ? '已收藏' : '收藏') + '</span>';
         favBtn.title = hasFav ? '已收藏（点击管理）' : '收藏';
 
         if (data.description) {
@@ -1078,6 +1496,7 @@ async function loadAdjacentNavPage(direction) {
 
 function hideViewer() {
     resetViewerZoom();
+    hideCtxMenu();
     $('viewerOverlay').classList.add('hidden');
     document.body.style.overflow = '';
     _viewer = { data: null, idx: 0 };
@@ -1150,11 +1569,12 @@ document.addEventListener('keydown', function (e) {
 let _jobPollTimer = null;
 let _jobCloseTimer = null;
 let _currentJobId = null;
+let _authorDownloadId = '';
 
 function setFabBusy(busy) {
     const scanBtn = $('btnScan');
     const syncBtn = $('btnSync');
-    [scanBtn, syncBtn].forEach(b => {
+    [scanBtn, syncBtn, $('btnSubCheck')].forEach(b => {
         if (!b) return;
         b.disabled = busy;
         b.style.opacity = busy ? 0.55 : 1;
@@ -1170,11 +1590,53 @@ function hideJobWindow() {
     $('jobWindow').classList.add('hidden');
 }
 
+function jobKindLabel(kind) {
+    if (kind === 'scan') return '扫描图片';
+    if (kind === 'download_author') return '下载作者作品';
+    if (kind === 'subscription') return '订阅更新';
+    if (kind === 'subscription_import') return '导入订阅';
+    return '同步元数据';
+}
+
+function openAuthorDownload() {
+    $('authorDlInput').value = '';
+    $('authorDlMsg').style.display = 'none';
+    $('authorDownloadOverlay').classList.remove('hidden');
+    $('authorDlInput').focus();
+}
+
+function closeAuthorDownload() {
+    $('authorDownloadOverlay').classList.add('hidden');
+}
+
+function confirmAuthorDownload() {
+    const id = ($('authorDlInput').value || '').trim();
+    const msg = $('authorDlMsg');
+    if (!id) { msg.textContent = '请输入作者 ID'; msg.style.display = 'block'; return; }
+    if (!/^\d+$/.test(id)) { msg.textContent = '作者 ID 应为数字'; msg.style.display = 'block'; return; }
+    _authorDownloadId = id;
+    closeAuthorDownload();
+    if (currentView !== 'gallery') switchView('gallery');
+    startJob('download_author');
+}
+
 function startJob(kind) {
+    let reqUrl = kind === 'scan' ? '/api/scan' : '/api/sync';
+    if (kind === 'download_author') {
+        reqUrl = '/api/download-author?author_id=' + encodeURIComponent(_authorDownloadId);
+    }
+    if (kind === 'subscription') {
+        reqUrl = '/api/subscriptions/check';
+    }
+    launchJob(reqUrl, kind);
+}
+
+// 通用任务启动：任意 URL/方法触发后台任务并接入进度窗轮询
+function launchJob(reqUrl, kind, method) {
     clearTimeout(_jobCloseTimer);
     clearTimeout(_jobPollTimer);
     setFabBusy(true);
-    $('jobTitle').textContent = kind === 'scan' ? '扫描图片' : '同步元数据';
+    $('jobTitle').textContent = jobKindLabel(kind);
     $('jobBody').style.display = 'block';
     $('jobResult').style.display = 'none';
     $('jobError').style.display = 'none';
@@ -1183,7 +1645,7 @@ function startJob(kind) {
     $('jobBarFill').style.width = '0%';
     showJobWindow();
 
-    fetch(kind === 'scan' ? '/api/scan' : '/api/sync')
+    fetch(reqUrl, { method: method || 'GET' })
         .then(r => r.json())
         .then(d => {
             if (d && d.job_id) {
@@ -1218,7 +1680,7 @@ function pollJob(jobId) {
 }
 
 function renderJobProgress(d) {
-    $('jobTitle').textContent = d.kind === 'scan' ? '扫描图片' : '同步元数据';
+    $('jobTitle').textContent = jobKindLabel(d.kind);
     $('jobPhase').textContent = d.message || '处理中…';
     const fill = $('jobBarFill');
     if (d.total != null && d.total > 0) {
@@ -1253,6 +1715,14 @@ function finishJob(d) {
         loadGallery(1);
         if ($('viewAuthors').classList.contains('active')) loadAuthorsView();
         if ($('viewTags').classList.contains('active')) loadTagsView();
+    } else if (d.kind === 'download_author') {
+        const rd = d.result || {};
+        if (rd.cancelled || rd.downloaded > 0) showToast('下载完成，可点击「扫描图片」入库');
+    } else if (d.kind === 'subscription') {
+        loadGallery(1);
+        loadSubscriptionsView();
+    } else if (d.kind === 'subscription_import') {
+        loadSubscriptionsView();
     }
     clearTimeout(_jobCloseTimer);
     _jobCloseTimer = setTimeout(hideJobWindow, 3500);
@@ -1272,6 +1742,32 @@ function renderJobResult(d) {
         if (r.thumbnails) {
             html += `<br>缩略图：生成 ${r.thumbnails.generated || 0} · 失败 ${r.thumbnails.failed || 0}`;
         }
+    } else if (d.kind === 'download_author') {
+        html = `下载完成<br>作者 ${escapeHtml(r.author_name || r.author_id) || ''}<br>共 ${r.total || 0} 件 · 下载 ${r.downloaded || 0} · 跳过 ${r.skipped || 0} · 失败 ${r.failed || 0}`;
+        if (r.cancelled) html += `<br>任务已中途停止`;
+        const fails = (r.details || []).filter(x => x.status === 'failed').slice(0, 3);
+        if (fails.length) {
+            html += `<div class="job-err-line">失败示例：<br>${fails.map(f => `PID ${f.pixiv_id}：${escapeHtml(f.error)}`).join('<br>')}</div>`;
+        }
+        if (r.auth_error) {
+            html += `<div class="job-err-line">认证错误：${escapeHtml(r.auth_error)}</div>`;
+        }
+        html += `<div class="job-err-line">文件已写入本地目录，运行「扫描图片」后入库。</div>`;
+    } else if (d.kind === 'subscription') {
+        html = `订阅更新完成<br>检查 ${r.checked || 0} 个订阅 · 发现新作品 ${r.new_found || 0} · 下载 ${r.downloaded || 0} · 失败 ${r.failed || 0}`;
+        if (r.cancelled) html += `<br>任务已中途停止`;
+        if ((r.subs || []).length) {
+            html += `<div class="job-err-line">${r.subs.map(s =>
+                `${escapeHtml(s.author_name)}：新 ${s.new} · 下载 ${s.downloaded}${s.failed ? ' · 失败 ' + s.failed : ''}`
+            ).join('<br>')}</div>`;
+        }
+        if (r.scan) {
+            html += `<div class="job-err-line">入库：新作品 ${r.scan.new_artworks || 0} · 新图片 ${r.scan.new_images || 0}${r.synced ? ' · 元数据同步 ' + r.synced : ''}</div>`;
+        } else if (!r.cancelled) {
+            html += `<div class="job-err-line">没有新增文件，无需入库。</div>`;
+        }
+    } else if (d.kind === 'subscription_import') {
+        html = `导入完成<br>发现画师 ${r.found || 0} · 新增订阅 ${r.added || 0} · 已存在 ${r.skipped_existing || 0}`;
     } else {
         html = `同步完成<br>成功 ${r.synced || 0} · 已删除 ${r.deleted || 0} · 失败 ${r.failed || 0}`;
         const fails = (r.details || []).filter(x => x.status === 'failed').slice(0, 3);
@@ -1285,7 +1781,7 @@ function renderJobResult(d) {
             html += `<div class="job-err-line">失败的作品将在下次同步时自动重试。</div>`;
         }
     }
-    $('jobTitle').textContent = d.kind === 'scan' ? '扫描图片' : '同步元数据';
+    $('jobTitle').textContent = jobKindLabel(d.kind);
     $('jobBody').style.display = 'none';
     $('jobError').style.display = 'none';
     $('jobResult').style.display = 'block';
@@ -1392,7 +1888,7 @@ function updateThemeBtn() {
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
     const btn = $('btnTheme');
     if (btn) {
-        btn.textContent = isLight ? '🌙' : '☀️';
+        btn.innerHTML = '<svg class="icon"><use href="#i-' + (isLight ? 'moon' : 'sun') + '"/></svg><span class="nav-label">' + (isLight ? '暗色模式' : '亮色模式') + '</span>';
         btn.title = isLight ? '切换到暗色主题' : '切换到亮色主题';
     }
 }
@@ -1435,6 +1931,13 @@ async function openSettings() {
         $('portHint').textContent = data.server_port ? `当前端口: ${data.server_port}（修改后需重启服务生效，默认 6814）` : '当前端口: 6814（修改后需重启服务生效）';
         $('tokenHint2').textContent = data.access_token_auto ? '局域网模式下自动生成，无固定令牌' : (data.access_token ? '当前使用固定令牌' : '未设置（非局域网模式无需令牌）');
         $('syncDelayHint').textContent = data.sync_delay_ms != null ? `当前: ${data.sync_delay_ms} ms（0=不限速）` : '当前: 800 ms（0=不限速）';
+        const mirror = data.image_mirror || '';
+        $('settingMirrorToggle').checked = !!mirror;
+        $('settingImageMirror').value = mirror;
+        $('mirrorHint').textContent = mirror
+            ? `当前: 图片下载走 ${mirror}（仅影响「按作者下载」与头像抓取；同步元数据不涉及图片）`
+            : '关闭时使用 Pixiv 官方 i.pximg.net。部分镜像不支持无 Referer 图片或头像，会失败或自动回退';
+        onMirrorToggleChange();
         $('settingToken').value = '';
         $('settingDir').value = data.image_source_dir || '';
         $('settingProxy').value = data.proxy || '';
@@ -1449,6 +1952,11 @@ async function openSettings() {
 
 function closeSettings() {
     $('settingsOverlay').classList.add('hidden');
+}
+
+function onMirrorToggleChange() {
+    const f = $('mirrorDomainField');
+    if (f) f.style.display = $('settingMirrorToggle').checked ? 'block' : 'none';
 }
 
 async function refreshDirectIps() {
@@ -1477,6 +1985,7 @@ async function saveSettings() {
     const port = $('settingPort').value.trim();
     const accessToken = $('settingAccessToken').value.trim();
     const syncDelay = $('settingSyncDelay').value.trim();
+    const imageMirror = $('settingMirrorToggle').checked ? $('settingImageMirror').value.trim() : '';
     const msg = $('settingsMsg');
 
     const payload = {
@@ -1484,12 +1993,13 @@ async function saveSettings() {
         image_source_dir: dir,
         proxy: proxy,
         connection_mode: mode,
-        sync_delay_ms: syncDelay
+        sync_delay_ms: syncDelay,
+        image_mirror: imageMirror
     };
     if (port) payload.server_port = port;
     payload.access_token = accessToken;
 
-    if (!token && !dir && !proxy && !port && !accessToken && !syncDelay) {
+    if (!token && !dir && !proxy && !port && !accessToken && !syncDelay && !imageMirror) {
         msg.style.display = 'block';
         msg.textContent = '请至少填写一项';
         msg.style.color = '#e94560';
@@ -1638,9 +2148,30 @@ document.addEventListener('contextmenu', function (e) {
 
 document.addEventListener('click', function (e) {
     if (!(e.target.closest && e.target.closest('#ctxMenu'))) hideCtxMenu();
+    if (!(e.target.closest && e.target.closest('.sort-widget'))) {
+        const sm = $('sortMenu');
+        if (sm) sm.classList.add('hidden');
+    }
 });
 document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') hideCtxMenu();
+    if (e.key === 'Escape') {
+        hideCtxMenu();
+        const sm = $('sortMenu');
+        if (sm) sm.classList.add('hidden');
+        // 依次关闭最上层的模态弹窗
+        const closers = [
+            ['favSelectOverlay', closeFavSelect],
+            ['subAddOverlay', closeSubAdd],
+            ['subImportOverlay', closeSubImport],
+            ['settingsOverlay', closeSettings],
+            ['authorDownloadOverlay', closeAuthorDownload],
+            ['deleteConfirmOverlay', closeDeleteConfirm],
+        ];
+        for (const [id, fn] of closers) {
+            const el = $(id);
+            if (el && !el.classList.contains('hidden')) { fn(); break; }
+        }
+    }
 });
 window.addEventListener('scroll', function () { hideCtxMenu(); }, true);
 window.addEventListener('resize', function () { hideCtxMenu(); });
@@ -1701,8 +2232,10 @@ $('searchInput').addEventListener('keydown', function (e) {
 });
 
 updateThemeBtn();
+updateSidebarToggle();
 updateSafeBadge();
 initR18();
+updateSortBtn();
 if (window.pywebview && window.pywebview.api) {
     const f = $('openExternalField');
     if (f) f.style.display = 'block';

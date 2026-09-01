@@ -13,6 +13,9 @@
                 if (localStorage.getItem('pa-safe') === '1') {
                     document.documentElement.classList.add('safe-mode');
                 }
+                if (localStorage.getItem('pa-sidebar') === 'collapsed') {
+                    document.documentElement.classList.add('sb-collapsed');
+                }
             } catch (e) {}
         })();
     </script>
@@ -21,12 +24,45 @@
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-<header class="site-header">
-    <h1><a href="/" class="brand-text">Pixiv Archive</a></h1>
-</header>
+{% include 'icons.html' %}
 
-<div class="detail" id="detail">
-    <div id="loading" class="loading">加载中...</div>
+<aside class="sidebar">
+    <div class="brand-row">
+        <div class="brand"><a href="/" class="brand-text">Pixiv Archive</a></div>
+        <button class="sb-toggle" id="btnSidebar" title="收起侧栏" onclick="toggleSidebar()"></button>
+    </div>
+    <div class="sidebar-body">
+        <nav>
+            <a class="side-nav-item active" href="/" title="画廊">
+                <svg class="icon"><use href="#i-image"/></svg><span class="nav-label">画廊</span>
+            </a>
+        </nav>
+    </div>
+</aside>
+
+<script>
+function updateSidebarToggle() {
+    const collapsed = document.documentElement.classList.contains('sb-collapsed');
+    const btn = document.getElementById('btnSidebar');
+    if (btn) {
+        btn.title = collapsed ? '展开侧栏' : '收起侧栏';
+        btn.innerHTML = '<svg class="icon" style="transform:rotate(' + (collapsed ? 180 : 0) + 'deg)"><use href="#i-panel"/></svg>';
+    }
+}
+function toggleSidebar() {
+    const collapsed = document.documentElement.classList.toggle('sb-collapsed');
+    try { localStorage.setItem('pa-sidebar', collapsed ? 'collapsed' : 'expanded'); } catch (e) {}
+    updateSidebarToggle();
+}
+updateSidebarToggle();
+</script>
+
+<div class="content">
+    <main>
+        <div class="detail" id="detail">
+            <div id="loading" class="loading">加载中...</div>
+        </div>
+    </main>
 </div>
 
 <!-- 自定义右键菜单 -->
@@ -66,11 +102,11 @@ async function loadDetail() {
     }
 
     let html = `
-        <a href="/" class="back-link">← 返回首页</a>
+        <a href="/" class="back-link"><svg class="icon"><use href="#i-arrow-left"/></svg>返回首页</a>
         <div class="detail-title-row">
             <h2>${escapeHtml(data.title)}</h2>
-            <button class="btn-folder-ghost" onclick="openInFolder()">📁 在文件夹中打开</button>
-            <button class="btn-delete-ghost" onclick="deleteCurrent()">删除作品</button>
+            <button class="btn-folder-ghost" onclick="openInFolder()"><svg class="icon"><use href="#i-folder"/></svg>在文件夹中打开</button>
+            <button class="btn-delete-ghost" onclick="deleteCurrent()"><svg class="icon"><use href="#i-trash"/></svg>删除作品</button>
         </div>
         <div class="meta-section">
             <div>作者：<a href="javascript:void(0)" onclick="window.location.href='/author/${data.author_id}'">${escapeHtml(data.author_name)}</a></div>

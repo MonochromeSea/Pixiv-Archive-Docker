@@ -13,6 +13,9 @@
                 if (localStorage.getItem('pa-safe') === '1') {
                     document.documentElement.classList.add('safe-mode');
                 }
+                if (localStorage.getItem('pa-sidebar') === 'collapsed') {
+                    document.documentElement.classList.add('sb-collapsed');
+                }
             } catch (e) {}
         })();
     </script>
@@ -21,21 +24,57 @@
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-<header class="site-header">
-    <h1><a href="/" class="brand-text">Pixiv Archive</a></h1>
-    <div class="search-bar">
-        <input type="text" id="searchInput" placeholder="搜索标题 / 作者 / 标签 / Pixiv ID..."
-               onkeydown="if(event.key==='Enter'){window.location.href='/?q='+encodeURIComponent(this.value)}">
-        <button onclick="window.location.href='/?q='+encodeURIComponent(document.getElementById('searchInput').value)">搜索</button>
-    </div>
-</header>
+{% include 'icons.html' %}
 
-<div class="container">
-    <div id="authorInfo" class="author-header" style="display:none;"></div>
-    <div class="gallery" id="gallery"></div>
-    <div id="loading" class="loading" style="display:none;">加载中...</div>
-    <div id="empty" class="empty-state" style="display:none;">该作者没有作品。</div>
-    <div class="pagination" id="pagination" style="display:none;"></div>
+<aside class="sidebar">
+    <div class="brand-row">
+        <div class="brand"><a href="/" class="brand-text">Pixiv Archive</a></div>
+        <button class="sb-toggle" id="btnSidebar" title="收起侧栏" onclick="toggleSidebar()"></button>
+    </div>
+    <div class="sidebar-body">
+        <nav>
+            <a class="side-nav-item" href="/" title="画廊">
+                <svg class="icon"><use href="#i-image"/></svg><span class="nav-label">画廊</span>
+            </a>
+        </nav>
+    </div>
+</aside>
+
+<script>
+function updateSidebarToggle() {
+    const collapsed = document.documentElement.classList.contains('sb-collapsed');
+    const btn = document.getElementById('btnSidebar');
+    if (btn) {
+        btn.title = collapsed ? '展开侧栏' : '收起侧栏';
+        btn.innerHTML = '<svg class="icon" style="transform:rotate(' + (collapsed ? 180 : 0) + 'deg)"><use href="#i-panel"/></svg>';
+    }
+}
+function toggleSidebar() {
+    const collapsed = document.documentElement.classList.toggle('sb-collapsed');
+    try { localStorage.setItem('pa-sidebar', collapsed ? 'collapsed' : 'expanded'); } catch (e) {}
+    updateSidebarToggle();
+}
+updateSidebarToggle();
+</script>
+
+<div class="content">
+    <header class="content-topbar">
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="搜索标题 / 作者 / 标签 / Pixiv ID..."
+                   onkeydown="if(event.key==='Enter'){window.location.href='/?q='+encodeURIComponent(this.value)}">
+            <button onclick="window.location.href='/?q='+encodeURIComponent(document.getElementById('searchInput').value)">搜索</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <div id="authorInfo" class="author-header" style="display:none;"></div>
+            <div class="gallery" id="gallery"></div>
+            <div id="loading" class="loading" style="display:none;">加载中...</div>
+            <div id="empty" class="empty-state" style="display:none;">该作者没有作品。</div>
+            <div class="pagination" id="pagination" style="display:none;"></div>
+        </div>
+    </main>
 </div>
 
 <script>

@@ -1,6 +1,8 @@
 import os
+import re
 import time
 import requests
+from urllib.parse import urlsplit
 from pixivpy3 import AppPixivAPI
 from dotenv import load_dotenv
 from app import paths
@@ -9,6 +11,45 @@ from app.direct_connect import enable_direct, DirectAdapter, refresh_ips
 load_dotenv(paths.ENV_FILE)
 
 REQUEST_TIMEOUT = 30
+
+# 官方图片主机（下载/头像字节的来源），镜像替换只作用于这些域名
+_PIXIV_IMAGE_HOSTS = frozenset({"i.pximg.net", "i-f.pximg.net", "s.pximg.net"})
+_SCHEME_RE = re.compile(r"^https?://")
+
+
+def image_mirror_host():
+    """设置里配置的第三方图片镜像域名（PIXIV_IMAGE_MIRROR，留空=不启用）。"""
+    mirror = (os.getenv("PIXIV_IMAGE_MIRROR", "") or "").strip()
+    if not mirror:
+        return ""
+    mirror = _SCHEME_RE.sub("", mirror).strip().rstrip("/")
+    # 只保留主机+路径前缀部分，拒绝含空格的无效输入
+    if not mirror or re.search(r"\s", mirror):
+        return ""
+    return mirror
+
+
+def apply_image_mirror(url):
+    """若启用了镜像，把 pixiv 官方图片 URL 的域名替换为镜像域名（保留路径与查询串）。
+
+    仅影响图片字节的来源，不改变 API 调用与 URL 获取逻辑；
+    非官方图片主机（含已是镜像的 URL）原样返回，保证幂等。
+    """
+    if not url:
+        return url
+    mirror = image_mirror_host()
+    if not mirror:
+        return url
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return url
+    host = (parsed.hostname or "").lower()
+    if host not in _PIXIV_IMAGE_HOSTS:
+        return url
+    if not _SCHEME_RE.match(mirror):
+        mirror = "https://" + mirror
+    return mirror + parsed.path + (f"?{parsed.query}" if parsed.query else "")
 
 
 class PixivError(Exception):
@@ -53,12 +94,19 @@ def _build_session():
     return _build_session_with_referer("https://app-api.pixiv.net/")
 
 
-def _build_session_with_referer(referer):
+def _build_session_with_referer(referer, use_proxy=False):
     session = requests.Session()
-    adapter = DirectAdapter()
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-    session.verify = False
+    proxy = (os.getenv("PIXIV_PROXY", "") or "").strip() if use_proxy else ""
+    if proxy:
+        # 代理模式走标准 TLS（SNI + 完整证书校验）：DirectAdapter 的无 SNI 握手
+        # 是给 IP 直连用的，经代理隧道时 Cloudflare 对无 SNI 连接会直接掐断
+        # （SSLEOFError）。requests.Session 原生支持 proxies，无需挂自定义 adapter。
+        session.proxies.update({"http": proxy, "https": proxy})
+    else:
+        adapter = DirectAdapter()
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.verify = False
     session.headers.update({
         "referer": referer,
         "User-Agent": "PixivIOSApp/5.8.0",
@@ -72,10 +120,23 @@ def fetch_profile_image(url, timeout=REQUEST_TIMEOUT):
         return None
     try:
         enable_direct()
-        session = _build_session_with_referer("https://www.pixiv.net/")
-        resp = session.get(url, timeout=timeout)
-        if resp.status_code == 200:
-            return resp.content
+        try:
+            use_proxy = get_pixiv_client().mode == "proxy"
+        except Exception:
+            use_proxy = False
+        session = _build_session_with_referer("https://www.pixiv.net/", use_proxy=use_proxy)
+        candidates = [url]
+        mirrored = apply_image_mirror(url)
+        if mirrored and mirrored != url:
+            # 优先走镜像，失败回退官方地址（部分镜像不服务 s.pximg.net 头像）
+            candidates.insert(0, mirrored)
+        for candidate in candidates:
+            try:
+                resp = session.get(candidate, timeout=timeout)
+                if resp.status_code == 200:
+                    return resp.content
+            except Exception:
+                continue
         return None
     except Exception:
         return None
@@ -96,7 +157,12 @@ class PixivClient:
             self.api.requests = _build_session()
             self.api.requests_kwargs = {"timeout": REQUEST_TIMEOUT}
         elif self.mode == "proxy" and self.proxy:
-            self.api = AppPixivAPI(proxies={"http": self.proxy, "https": self.proxy})
+            # 注意：不能用 AppPixivAPI(proxies=...) 再赋值 requests_kwargs——
+            # 构造函数把 proxies 存进 requests_kwargs，后续整体赋值会把它覆盖丢失
+            self.api = AppPixivAPI()
+            self.api.requests = _build_session_with_referer(
+                "https://app-api.pixiv.net/", use_proxy=True
+            )
             self.api.requests_kwargs = {"timeout": REQUEST_TIMEOUT}
         else:
             # auto: try direct first
@@ -116,14 +182,15 @@ class PixivClient:
         try:
             self.api.auth(refresh_token=refresh_token)
             self._last_auth = now
-        except Exception:
+        except Exception as e:
             if getattr(self, "_auto_direct", False) and self.proxy:
                 # auto mode: fall back to Clash proxy
                 try:
                     self.mode = "proxy"
                     self._auto_direct = False
-                    self.api = AppPixivAPI(
-                        proxies={"http": self.proxy, "https": self.proxy}
+                    self.api = AppPixivAPI()
+                    self.api.requests = _build_session_with_referer(
+                        "https://app-api.pixiv.net/", use_proxy=True
                     )
                     self.api.requests_kwargs = {"timeout": REQUEST_TIMEOUT}
                     self.api.auth(refresh_token=refresh_token)
@@ -131,7 +198,10 @@ class PixivClient:
                 except Exception as e2:
                     raise PixivAuthError(f"认证失败（直连与代理均失败）：{e2}")
             else:
-                raise PixivAuthError("认证失败，请检查 refresh token 与网络连接")
+                cause = str(e)
+                if "SSLEOF" in cause or "UNEXPECTED_EOF" in cause:
+                    cause += "（常见原因：代理未把 oauth.secure.pixiv.net 走节点，请检查代理分流规则）"
+                raise PixivAuthError(f"认证失败：{cause[:200]}")
 
     def get_illust_detail(self, illust_id):
         try:
@@ -145,6 +215,57 @@ class PixivClient:
             raise
         except Exception as e:
             raise PixivNetworkError(f"请求作品详情失败：{e}")
+
+    @staticmethod
+    def parse_next_qs(next_url):
+        """把 pixiv 返回的 next_url 解析成翻页参数 dict（offset / max_bookmark_id 等）。"""
+        return AppPixivAPI.parse_qs(next_url)
+
+    def list_user_illusts(self, user_id, illust_type="illust", offset=None):
+        """取画师作品一页（按发布时间倒序，最新在前）。返回 (illusts, next_url)。"""
+        try:
+            self._ensure_auth()
+            response = self.api.user_illusts(user_id, type=illust_type, offset=offset)
+        except Exception as e:
+            raise PixivNetworkError(f"请求画师作品列表失败：{e}")
+        if response.get("error"):
+            raise PixivNetworkError(_fmt_error(response.get("error")))
+        return response.get("illusts", []), response.get("next_url")
+
+    def list_user_following(self, user_id, offset=None):
+        """取关注列表一页。返回 (users, next_url)。"""
+        try:
+            self._ensure_auth()
+            response = self.api.user_following(user_id, offset=offset)
+        except Exception as e:
+            raise PixivNetworkError(f"请求关注列表失败：{e}")
+        if response.get("error"):
+            raise PixivNetworkError(_fmt_error(response.get("error")))
+        body = response.get("response") or {}
+        users = body.get("users", []) if isinstance(body, dict) else []
+        return users, response.get("next_url")
+
+    def list_user_bookmarks(self, user_id, max_bookmark_id=None):
+        """取收藏作品一页。返回 (illusts, next_url)。"""
+        try:
+            self._ensure_auth()
+            response = self.api.user_bookmarks_illust(
+                user_id, max_bookmark_id=max_bookmark_id
+            )
+        except Exception as e:
+            raise PixivNetworkError(f"请求收藏列表失败：{e}")
+        if response.get("error"):
+            raise PixivNetworkError(_fmt_error(response.get("error")))
+        return response.get("illusts", []), response.get("next_url")
+
+    def get_my_user_id(self):
+        """user_detail 无参调用返回认证令牌所属用户。失败返回 None。"""
+        try:
+            self._ensure_auth()
+            response = self.api.user_detail(None)
+            return (response.get("user") or {}).get("id")
+        except Exception:
+            return None
 
     def _retry_direct(self, illust_id):
         """auto-direct 模式下刷新直连 IP 并重试一次。"""
