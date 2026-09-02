@@ -199,6 +199,13 @@ html.sb-collapsed .sb-toggle {
     display: none;
 }
 
+/* 收起态：仅图标徽章，居中成紧凑圆角块 */
+html.sb-collapsed .safe-badge {
+    align-self: center;
+    margin: 0 0 4px;
+    padding: 4px 5px;
+}
+
 /* 收起态悬停：侧栏浮层展开显示文字 */
 @media (min-width: 901px) {
     html.sb-collapsed .sidebar {
@@ -224,6 +231,9 @@ html.sb-collapsed .sb-toggle {
 
     html.sb-collapsed .sidebar:hover .safe-badge {
         display: inline-flex;
+        align-self: flex-start;
+        margin: 0 6px 4px;
+        padding: 4px 10px;
     }
 
     html.sb-collapsed .sidebar:hover .side-nav-item {
@@ -1049,9 +1059,25 @@ html.sb-collapsed .sb-toggle {
     background: var(--danger);
 }
 
-/* ===== 订阅视图 ===== */
+/* ===== 收藏订阅视图 ===== */
 .subscriptions-grid {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.bm-hint {
+    margin: 14px 24px 0;
+    padding: 10px 14px;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--text-2);
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-radius: var(--radius-md);
+}
+
+.bm-hint strong {
+    color: var(--accent);
+    font-weight: 600;
 }
 
 .sub-header-actions {
@@ -1068,6 +1094,15 @@ html.sb-collapsed .sb-toggle {
     flex: 1;
     padding: 14px 16px 8px;
     cursor: default;
+}
+
+.sub-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--border-strong);
+    flex: none;
 }
 
 .sub-actions {
@@ -1419,6 +1454,17 @@ html.sb-collapsed .sb-toggle {
 
 .btn-primary:hover {
     background: var(--accent-hover) !important;
+}
+
+.btn-danger {
+    background: var(--danger) !important;
+    border-color: var(--danger) !important;
+    color: #fff !important;
+    font-weight: 600;
+}
+
+.btn-danger:hover {
+    filter: brightness(1.12);
 }
 
 .settings-msg {
@@ -2295,8 +2341,9 @@ html.safe-mode img {
     }
 
     .safe-badge {
-        margin: 0 4px 4px;
-        padding: 4px 6px;
+        align-self: center;
+        margin: 0 0 4px;
+        padding: 4px 5px;
     }
 
     .sb-text {

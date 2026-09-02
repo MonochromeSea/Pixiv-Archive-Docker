@@ -65,11 +65,59 @@ updateSidebarToggle();
     </main>
 </div>
 
+<!-- Generic confirm dialog -->
+<div id="confirmDialogOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeConfirmDialog()">
+    <div class="settings-panel" style="width:400px;">
+        <h3 id="cdTitle">确认操作</h3>
+        <div id="cdMsg" class="settings-field" style="font-size:14px;line-height:1.7;"></div>
+        <div class="settings-actions">
+            <button id="cdOkBtn" onclick="doConfirmDialog()" class="btn-danger">确认</button>
+            <button onclick="closeConfirmDialog()">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
 <!-- 自定义右键菜单 -->
 <div class="ctx-menu hidden" id="ctxMenu"></div>
 
 <script>
 const artworkId = {{ artwork_id }};
+const $ = id => document.getElementById(id);
+
+// ===== Toast（与应用主界面风格一致，替代 alert） =====
+let _toastTimer = null;
+function showToast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('visible');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => t.classList.remove('visible'), 3500);
+}
+
+// ===== 通用确认弹窗（替代原生 confirm） =====
+let _cdCallback = null;
+function showConfirmDialog(title, message, onConfirm, okText) {
+    $('cdTitle').textContent = title || '确认操作';
+    $('cdMsg').textContent = message || '';
+    $('cdOkBtn').textContent = okText || '确认';
+    _cdCallback = onConfirm;
+    $('confirmDialogOverlay').classList.remove('hidden');
+}
+function closeConfirmDialog() {
+    $('confirmDialogOverlay').classList.add('hidden');
+    _cdCallback = null;
+}
+function doConfirmDialog() {
+    const cb = _cdCallback;
+    closeConfirmDialog();
+    if (cb) cb();
+}
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$('confirmDialogOverlay').classList.contains('hidden')) closeConfirmDialog();
+});
 
 async function loadDetail() {
     const resp = await fetch(`/api/artworks/${artworkId}`);
@@ -163,7 +211,7 @@ async function openInFolder() {
     const img = (window._imageList && window._imageList.length && window._currentIdx != null)
         ? window._imageList[window._currentIdx]
         : (list[0] || null);
-    if (!img) { alert('没有可打开的图片'); return; }
+    if (!img) { showToast('没有可打开的图片'); return; }
     try {
         const resp = await fetch('/api/open-folder', {
             method: 'POST',
@@ -171,24 +219,27 @@ async function openInFolder() {
             body: JSON.stringify({ image_id: img.id })
         });
         const data = await resp.json();
-        if (data.status === 'ok') alert('已在文件夹中打开');
-        else alert('打开失败：' + (data.error || '未知错误'));
+        if (data.status === 'ok') showToast('已在文件夹中打开');
+        else showToast('打开失败：' + (data.error || '未知错误'));
     } catch (e) {
-        alert('打开失败：' + e.message);
+        showToast('打开失败：' + e.message);
     }
 }
 
-async function deleteCurrent() {
-    if (!confirm('确认删除此作品？\n\n这将从数据库中移除该作品。')) return;
-    try {
-        const resp = await fetch(`/api/artworks/${artworkId}`, { method: 'DELETE' });
-        const data = await resp.json();
-        if (data.status === 'deleted') {
-            window.location.href = '/';
+function deleteCurrent() {
+    showConfirmDialog('删除作品', '确认删除此作品？这将从数据库中移除该作品（本地文件保留）。', async function () {
+        try {
+            const resp = await fetch(`/api/artworks/${artworkId}`, { method: 'DELETE' });
+            const data = await resp.json();
+            if (data.status === 'deleted') {
+                window.location.href = '/';
+                return;
+            }
+            showToast('删除失败：' + (data.error || '未知错误'));
+        } catch (e) {
+            showToast('删除失败：' + e.message);
         }
-    } catch (e) {
-        alert('删除失败: ' + e);
-    }
+    }, '删除');
 }
 
 let _artZoom = 1;

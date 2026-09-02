@@ -19,12 +19,7 @@ from app import jobs
 from app.database import get_db, init_db
 from app.scanner import scan_directory
 from app.sync import sync_metadata
-from app.download import (
-    download_author_works,
-    list_new_works_since,
-    check_subscription,
-    import_subscriptions,
-)
+from app.download import check_bookmark_subscription
 from app.pixiv import reset_pixiv_client, fetch_profile_image, get_pixiv_client
 
 load_dotenv(paths.ENV_FILE)
@@ -870,41 +865,10 @@ def api_scan():
     return {"job_id": job_id, "kind": "scan"}
 
 
-@app.get("/api/download-author")
-def api_download_author(author_id: int = Query(..., ge=1)):
-    if jobs.is_busy():
-        return _busy_error()
+# ===== 收藏订阅（订阅某用户的公开收藏列表）=====
 
-    source_dir = os.getenv("IMAGE_SOURCE_DIR", "")
-    if not source_dir:
-        return _error_response("NO_SOURCE_DIR", "未设置本地图片目录",
-                               "请到 设置 → 本地图片目录 填写后重试")
-    if not os.path.isdir(source_dir):
-        return _error_response("SOURCE_DIR_NOT_FOUND", f"图片目录不存在：{source_dir}",
-                               "请检查设置中的目录路径是否正确")
-    if not os.getenv("PIXIV_REFRESH_TOKEN", ""):
-        return _error_response("NO_TOKEN", "未设置 Pixiv Refresh Token",
-                               "请到 设置 → Pixiv Refresh Token 填写后重试")
-
-    def run_download(job):
-        job.update(phase="download", message="开始下载…")
-        result = download_author_works(
-            author_id,
-            progress_callback=job.update,
-            cancel_event=job.cancel_event,
-        )
-        job.state["result"] = result
-
-    job_id, error = jobs.start("download_author", run_download)
-    if error:
-        return _busy_error()
-    return {"job_id": job_id, "kind": "download_author"}
-
-
-# ===== 画师订阅 =====
-
-def _sub_source_dir_check():
-    """订阅任务共用前置校验，返回 (source_dir, error_response)。"""
+def _bookmark_source_dir_check():
+    """收藏订阅任务共用前置校验，返回 (source_dir, error_response)。"""
     if jobs.is_busy():
         return None, _busy_error()
     source_dir = os.getenv("IMAGE_SOURCE_DIR", "")
@@ -920,11 +884,11 @@ def _sub_source_dir_check():
     return source_dir, None
 
 
-def _run_subscription_check(job, subs, source_dir):
-    """订阅检查核心：逐订阅增量下载 → 有新文件则扫描入库+缩略图+元数据同步。
+def _run_bookmark_check(job, subs, source_dir):
+    """收藏订阅检查核心：逐订阅增量下载新收藏 → 有新文件则扫描入库+缩略图+元数据同步。
 
-    subs: [(pixiv_user_id, last_pid)]。与扫描/同步/手动下载共用 jobs 单任务锁，
-    保证同一时刻只有一个写库/写盘任务。auth 错误向上抛，由 jobs 置为 error。
+    subs: [(pixiv_user_id, last_pid)]。与扫描/同步共用 jobs 单任务锁。auth 错误向上抛，
+    由 jobs 置为 error。落盘目录按每条收藏自身画师分组（download_single_illust 处理）。
     """
     from datetime import datetime
     from app.thumbnails import generate_all_thumbnails
@@ -942,8 +906,8 @@ def _run_subscription_check(job, subs, source_dir):
     for i, (uid, last_pid) in enumerate(subs):
         if job.cancel_event.is_set():
             break
-        job.update("check", i + 1, len(subs), f"检查订阅 {i + 1}/{len(subs)}…")
-        r = check_subscription(
+        job.update("check", i + 1, len(subs), f"检查收藏订阅 {i + 1}/{len(subs)}…")
+        r = check_bookmark_subscription(
             client, session, uid, last_pid, source_dir,
             delay_ms=delay, progress_callback=job.update,
             cancel_event=job.cancel_event,
@@ -956,7 +920,7 @@ def _run_subscription_check(job, subs, source_dir):
              "failed": r["failed"]}, ensure_ascii=False)
         with get_db() as conn:
             conn.execute(
-                "UPDATE subscriptions SET last_pid = ?, last_checked = ?, last_result = ? "
+                "UPDATE bookmark_subs SET last_pid = ?, last_checked = ?, last_result = ? "
                 "WHERE pixiv_user_id = ?",
                 (r["max_pid_seen"], now_str, brief, uid),
             )
@@ -968,7 +932,7 @@ def _run_subscription_check(job, subs, source_dir):
         "failed": sum(s["failed"] for s in per_sub),
         "cancelled": job.cancel_event.is_set(),
         "subs": [
-            {"author_name": s["author_name"], "new": s["new_found"],
+            {"pixiv_user_id": s["pixiv_user_id"], "new": s["new_found"],
              "downloaded": s["downloaded"], "failed": s["failed"]}
             for s in per_sub if s["new_found"]
         ],
@@ -993,169 +957,129 @@ def _run_subscription_check(job, subs, source_dir):
     job.state["result"] = result
 
 
-@app.get("/api/subscriptions")
-def api_list_subscriptions():
+@app.get("/api/bookmark-subs")
+def api_list_bookmark_subs():
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT s.*,
-                      (SELECT COUNT(*) FROM artworks a
-                        WHERE a.author_id = (SELECT id FROM authors
-                                              WHERE pixiv_user_id = s.pixiv_user_id)
-                      ) AS local_works
-               FROM subscriptions s
+            """SELECT s.*, a.id AS author_id
+               FROM bookmark_subs s
+               LEFT JOIN authors a ON a.pixiv_user_id = s.pixiv_user_id
                ORDER BY s.created_at DESC"""
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-@app.post("/api/subscriptions")
-async def api_add_subscription(request: Request):
+@app.post("/api/bookmark-subs")
+async def api_add_bookmark_sub(request: Request):
     body = await request.json()
     uid = str(body.get("user_id", "")).strip()
     if not uid.isdigit() or int(uid) <= 0:
-        return _error_response("INVALID_UID", "画师 ID 无效",
-                               "请输入 Pixiv 画师主页 URL 中的数字 ID")
+        return _error_response("INVALID_UID", "用户 ID 无效",
+                               "请输入 Pixiv 用户主页 URL 中的数字 ID")
     uid = int(uid)
     name = (body.get("name") or "").strip()
+    if not name:
+        name = get_pixiv_client().get_user_display_name(uid)
     with get_db() as conn:
-        if not name:
-            row = conn.execute(
-                "SELECT name FROM authors WHERE pixiv_user_id = ?", (uid,)
-            ).fetchone()
-            name = row["name"] if row else ""
         cur = conn.execute(
-            "INSERT OR IGNORE INTO subscriptions (pixiv_user_id, name) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO bookmark_subs (pixiv_user_id, name) VALUES (?, ?)",
             (uid, name),
         )
         exists = cur.rowcount == 0
-    return {"status": "ok", "exists": exists}
+    return {"status": "ok", "exists": exists, "name": name}
 
 
-def _get_subscription_or_404(pixiv_user_id: int):
+def _get_bookmark_sub_or_none(pixiv_user_id: int):
     with get_db() as conn:
         return conn.execute(
-            "SELECT * FROM subscriptions WHERE pixiv_user_id = ?", (pixiv_user_id,)
+            "SELECT * FROM bookmark_subs WHERE pixiv_user_id = ?", (pixiv_user_id,)
         ).fetchone()
 
 
-@app.post("/api/subscriptions/{pixiv_user_id}/check")
-def api_check_one_subscription(pixiv_user_id: int):
-    """检查并下载单个订阅的新作品。"""
-    source_dir, err = _sub_source_dir_check()
+@app.post("/api/bookmark-subs/{pixiv_user_id}/check")
+def api_check_one_bookmark_sub(pixiv_user_id: int):
+    source_dir, err = _bookmark_source_dir_check()
     if err:
         return err
-    row = _get_subscription_or_404(pixiv_user_id)
+    row = _get_bookmark_sub_or_none(pixiv_user_id)
     if not row:
-        return _error_response("NOT_FOUND", "未订阅该画师", "请先添加订阅")
+        return _error_response("NOT_FOUND", "未订阅该用户的收藏", "请先添加订阅")
 
     def run(job):
-        _run_subscription_check(job, [(pixiv_user_id, row["last_pid"])], source_dir)
+        _run_bookmark_check(job, [(pixiv_user_id, row["last_pid"])], source_dir)
 
-    job_id, error = jobs.start("subscription", run)
+    job_id, error = jobs.start("bookmark_check", run)
     if error:
         return _busy_error()
-    return {"job_id": job_id, "kind": "subscription"}
+    return {"job_id": job_id, "kind": "bookmark_check"}
 
 
-@app.get("/api/subscriptions/preview/{pixiv_user_id}")
-def api_preview_subscription(pixiv_user_id: int):
-    """订阅前预览：该画师相对当前游标有多少新作品（轻量拉取，不占任务锁）。"""
+@app.get("/api/bookmark-subs/preview/{pixiv_user_id}")
+def api_preview_bookmark_sub(pixiv_user_id: int):
+    """订阅前预览：该用户公开收藏数与首屏新增数量估算（不占任务锁）。"""
     if not os.getenv("PIXIV_REFRESH_TOKEN", ""):
         return _error_response("NO_TOKEN", "未设置 Pixiv Refresh Token",
                                "请到 设置 → Pixiv Refresh Token 填写后重试")
-    row = _get_subscription_or_404(pixiv_user_id)
-    last_pid = row["last_pid"] if row else None
     client = get_pixiv_client()
     try:
         client._ensure_auth()
-        name, works = list_new_works_since(
-            client, pixiv_user_id, last_pid, max_pages_per_type=3
-        )
+        name = client.get_user_display_name(pixiv_user_id)
+        # 首屏：不带游标取一页，统计非空条数
+        illusts, _ = client.list_user_bookmarks(pixiv_user_id)
+        sample = len([i for i in illusts if i.get("id")])
     except Exception as e:
         return _error_response("PREVIEW_FAILED", f"预览失败：{str(e)[:150]}",
-                               "请确认画师 ID 正确且网络/代理可用")
-    return {"name": name, "count": len(works), "subscribed": bool(row)}
+                               "请确认用户 ID 正确且其收藏为公开")
+    return {"name": name, "first_page": sample}
 
 
-@app.post("/api/subscriptions/{pixiv_user_id}/toggle")
-def api_toggle_subscription(pixiv_user_id: int):
+@app.post("/api/bookmark-subs/{pixiv_user_id}/toggle")
+def api_toggle_bookmark_sub(pixiv_user_id: int):
     with get_db() as conn:
         cur = conn.execute(
-            "UPDATE subscriptions SET auto_download = 1 - auto_download "
+            "UPDATE bookmark_subs SET auto_download = 1 - auto_download "
             "WHERE pixiv_user_id = ?",
             (pixiv_user_id,),
         )
         if not cur.rowcount:
-            return _error_response("NOT_FOUND", "未订阅该画师", "")
+            return _error_response("NOT_FOUND", "未订阅该用户的收藏", "")
         row = conn.execute(
-            "SELECT auto_download FROM subscriptions WHERE pixiv_user_id = ?",
+            "SELECT auto_download FROM bookmark_subs WHERE pixiv_user_id = ?",
             (pixiv_user_id,),
         ).fetchone()
     return {"status": "ok", "auto_download": bool(row["auto_download"])}
 
 
-@app.delete("/api/subscriptions/{pixiv_user_id}")
-def api_delete_subscription(pixiv_user_id: int):
+@app.delete("/api/bookmark-subs/{pixiv_user_id}")
+def api_delete_bookmark_sub(pixiv_user_id: int):
     with get_db() as conn:
-        conn.execute("DELETE FROM subscriptions WHERE pixiv_user_id = ?",
+        conn.execute("DELETE FROM bookmark_subs WHERE pixiv_user_id = ?",
                      (pixiv_user_id,))
     return {"status": "ok"}
 
 
-@app.get("/api/subscriptions/check")
-def api_check_all_subscriptions():
-    """一键检查全部启用中的订阅并自动下载新插画（完成后入库+缩略图+同步元数据）。"""
-    source_dir, err = _sub_source_dir_check()
+@app.get("/api/bookmark-subs/check")
+def api_check_all_bookmark_subs():
+    """一键检查全部启用中的收藏订阅并自动下载新收藏（完成后入库+缩略图+同步元数据）。"""
+    source_dir, err = _bookmark_source_dir_check()
     if err:
         return err
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT pixiv_user_id, last_pid FROM subscriptions WHERE auto_download = 1"
+            "SELECT pixiv_user_id, last_pid FROM bookmark_subs WHERE auto_download = 1"
         ).fetchall()
     if not rows:
-        return _error_response("NO_SUBS", "还没有订阅任何画师",
-                               "在「订阅」视图中添加画师或从关注/收藏导入")
+        return _error_response("NO_SUBS", "还没有订阅任何收藏列表",
+                               "在「收藏订阅」视图中添加用户 ID")
     subs = [(r["pixiv_user_id"], r["last_pid"]) for r in rows]
 
     def run(job):
-        _run_subscription_check(job, subs, source_dir)
+        _run_bookmark_check(job, subs, source_dir)
 
-    job_id, error = jobs.start("subscription", run)
+    job_id, error = jobs.start("bookmark_check", run)
     if error:
         return _busy_error()
-    return {"job_id": job_id, "kind": "subscription"}
-
-
-@app.get("/api/subscriptions/import")
-def api_import_subscriptions(source: str = Query("following")):
-    """把 Pixiv 账号的关注/收藏画师批量导入为订阅。"""
-    if jobs.is_busy():
-        return _busy_error()
-    if source not in ("following", "bookmarks", "both"):
-        return _error_response("INVALID_SOURCE", "source 需为 following/bookmarks/both", "")
-    if not os.getenv("PIXIV_REFRESH_TOKEN", ""):
-        return _error_response("NO_TOKEN", "未设置 Pixiv Refresh Token",
-                               "请到 设置 → Pixiv Refresh Token 填写后重试")
-
-    def run_import(job):
-        from datetime import datetime as _dt
-        job.update("import", 0, None, "正在确认当前账号…")
-        client = get_pixiv_client()
-        uid = client.get_my_user_id()
-        if not uid:
-            raise RuntimeError("无法确定 refresh token 所属的 Pixiv 账号")
-        delay = _parse_sync_delay(os.getenv("SYNC_DELAY_MS", ""))
-        result = import_subscriptions(
-            client, source, uid, delay_ms=delay,
-            progress_callback=job.update, cancel_event=job.cancel_event,
-        )
-        result["at"] = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
-        job.state["result"] = result
-
-    job_id, error = jobs.start("subscription_import", run_import)
-    if error:
-        return _busy_error()
-    return {"job_id": job_id, "kind": "subscription_import"}
+    return {"job_id": job_id, "kind": "bookmark_check"}
 
 
 @app.get("/api/sync")

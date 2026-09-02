@@ -46,8 +46,8 @@
             <button class="side-nav-item" id="btnFavorites" onclick="switchView('favorites')" title="收藏夹">
                 <svg class="icon"><use href="#i-heart"/></svg><span class="nav-label">收藏夹</span>
             </button>
-            <button class="side-nav-item" id="btnSubscriptions" onclick="switchView('subscriptions')" title="订阅">
-                <svg class="icon"><use href="#i-rss"/></svg><span class="nav-label">订阅</span>
+            <button class="side-nav-item" id="btnBookmarkSubs" onclick="switchView('bookmarkSubs')" title="收藏订阅">
+                <svg class="icon"><use href="#i-bookmark-sub"/></svg><span class="nav-label">收藏订阅</span>
             </button>
         </nav>
         <div class="side-label">操作</div>
@@ -57,10 +57,7 @@
         <button class="side-nav-item" id="btnScan" onclick="startJob('scan')" title="扫描图片">
             <svg class="icon"><use href="#i-scan"/></svg><span class="nav-label">扫描图片</span>
         </button>
-        <button class="side-nav-item" onclick="openAuthorDownload()" title="按作者下载">
-            <svg class="icon"><use href="#i-download"/></svg><span class="nav-label">按作者下载</span>
-        </button>
-        <button class="side-nav-item" id="btnSubCheck" onclick="startJob('subscription')" title="检查订阅更新">
+        <button class="side-nav-item" id="btnBookmarkCheck" onclick="startJob('bookmark_check')" title="检查全部收藏订阅">
             <svg class="icon"><use href="#i-bell"/></svg><span class="nav-label">订阅更新</span>
         </button>
         <div class="sidebar-footer">
@@ -133,23 +130,21 @@
         <div id="favoriteGrid" class="favorites-grid"></div>
     </div>
 
-    <!-- Subscriptions view -->
-    <div class="view" id="viewSubscriptions">
+    <!-- Bookmarks-subscriptions view -->
+    <div class="view" id="viewBookmarkSubs">
         <div class="view-header">
-            <span>画师订阅</span>
+            <span>收藏订阅</span>
             <div class="sub-header-actions">
-                <button class="top-btn" onclick="openSubImport()">
-                    <svg class="icon"><use href="#i-users"/></svg>从关注/收藏导入
+                <button class="top-btn" onclick="openBmAdd()">
+                    <svg class="icon"><use href="#i-plus"/></svg>订阅收藏
                 </button>
-                <button class="top-btn" onclick="openSubAdd()">
-                    <svg class="icon"><use href="#i-plus"/></svg>订阅画师
-                </button>
-                <button class="top-btn" onclick="startJob('subscription')">
+                <button class="top-btn" onclick="startJob('bookmark_check')">
                     <svg class="icon"><use href="#i-bell"/></svg>全部检查
                 </button>
             </div>
         </div>
-        <div id="subscriptionGrid" class="favorites-grid subscriptions-grid"></div>
+        <div class="bm-hint">订阅某位 Pixiv 用户的<strong>公开收藏</strong>列表，每次检查自动下载其中新增的收藏作品（按收藏记录 ID 增量，只下新、不重复），并自动完成入库与缩略图。</div>
+        <div id="bookmarkSubGrid" class="favorites-grid subscriptions-grid"></div>
     </div>
     </main>
 </div>
@@ -178,18 +173,30 @@
     <div class="job-error" id="jobError" style="display:none;"></div>
 </div>
 
+<!-- Generic confirm dialog (替代原生 confirm，风格与应用一致) -->
+<div id="confirmDialogOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeConfirmDialog()">
+    <div class="settings-panel" style="width:400px;">
+        <h3 id="cdTitle">确认操作</h3>
+        <div id="cdMsg" class="settings-field" style="font-size:14px;line-height:1.7;"></div>
+        <div class="settings-actions">
+            <button id="cdOkBtn" onclick="doConfirmDialog()" class="btn-danger">确认</button>
+            <button onclick="closeConfirmDialog()">取消</button>
+        </div>
+    </div>
+</div>
+
 <!-- Delete confirm overlay -->
 <div id="deleteConfirmOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeDeleteConfirm()">
-    <div class="settings-panel">
-        <h3 id="delTitle">确认删除</h3>
-        <div id="delMsg" class="settings-field" style="font-size:14px;"></div>
+    <div class="settings-panel" style="width:400px;">
+        <h3 id="delTitle">删除作品</h3>
+        <div id="delMsg" class="settings-field" style="font-size:14px;line-height:1.7;"></div>
         <div class="settings-field">
             <label class="fav-check">
                 <input type="checkbox" id="delFilesCheck"> 同时删除本地源文件
             </label>
         </div>
         <div class="settings-actions">
-            <button onclick="confirmDelete()" class="btn-primary">确认删除</button>
+            <button onclick="confirmDelete()" class="btn-danger">删除</button>
             <button onclick="closeDeleteConfirm()">取消</button>
         </div>
         <div id="delMsgResult" class="settings-msg" style="display:none;"></div>
@@ -244,50 +251,30 @@
     </div>
 </div>
 
-<!-- Add subscription overlay -->
-<div id="subAddOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeSubAdd()">
+<!-- Add bookmarks-subscription overlay -->
+<div id="bmAddOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeBmAdd()">
     <div class="settings-panel" style="width:420px;">
-        <h3>订阅画师</h3>
+        <h3>订阅收藏列表</h3>
         <div class="settings-field">
-            <label for="subAddInput">画师 Pixiv ID（画师主页 URL 中的数字 ID）</label>
+            <label for="bmAddInput">用户 Pixiv ID（用户主页 URL 中的数字 ID）</label>
             <div style="display:flex;gap:8px;">
-                <input type="text" id="subAddInput" placeholder="例如 15278716" autocomplete="off"
-                       style="flex:1;" oninput="resetSubPreview()">
-                <button onclick="previewSubAdd()" class="btn-folder-ghost" style="flex:none;">查询</button>
+                <input type="text" id="bmAddInput" placeholder="例如 15278716" autocomplete="off"
+                       style="flex:1;" oninput="resetBmPreview()">
+                <button onclick="previewBmAdd()" class="btn-folder-ghost" style="flex:none;">查询</button>
             </div>
-            <span class="field-hint" id="subPreviewHint"></span>
+            <span class="field-hint" id="bmPreviewHint"></span>
         </div>
         <div class="settings-field">
             <label class="fav-check">
-                <input type="checkbox" id="subAddCheckNow" checked>
-                添加后立即检查并下载作品
+                <input type="checkbox" id="bmAddCheckNow" checked>
+                添加后立即检查并下载收藏作品
             </label>
-            <span class="field-hint">首次订阅会下载该画师全部历史作品（文件已存在的会自动跳过），之后每次检查只下载新增插画。</span>
+            <span class="field-hint">首次订阅会下载该用户公开收藏的全部作品（文件已存在的自动跳过），之后每次检查只下载新增的收藏。私有收藏受 Pixiv 隐私限制无法获取。</span>
         </div>
-        <div id="subAddMsg" class="settings-msg" style="display:none;"></div>
+        <div id="bmAddMsg" class="settings-msg" style="display:none;"></div>
         <div class="settings-actions">
-            <button onclick="confirmSubAdd()" class="btn-primary">订阅</button>
-            <button onclick="closeSubAdd()">取消</button>
-        </div>
-    </div>
-</div>
-
-<!-- Import subscriptions overlay -->
-<div id="subImportOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeSubImport()">
-    <div class="settings-panel" style="width:420px;">
-        <h3>导入订阅</h3>
-        <div class="settings-field">
-            <label>导入来源</label>
-            <select id="subImportSource">
-                <option value="following">关注的画师</option>
-                <option value="bookmarks">收藏作品对应的画师</option>
-                <option value="both">关注 + 收藏</option>
-            </select>
-            <span class="field-hint">从当前 Refresh Token 所属的 Pixiv 账号拉取列表，批量添加为订阅（已订阅的自动跳过）。导入后仍需点「全部检查」下载作品。</span>
-        </div>
-        <div class="settings-actions">
-            <button onclick="confirmSubImport()" class="btn-primary">开始导入</button>
-            <button onclick="closeSubImport()">取消</button>
+            <button onclick="confirmBmAdd()" class="btn-primary">订阅</button>
+            <button onclick="closeBmAdd()">取消</button>
         </div>
     </div>
 </div>
@@ -323,23 +310,6 @@
             <button onclick="confirmCreateFavorite()" class="btn-primary">创建</button>
             <button onclick="closeCreateFavorite()">取消</button>
         </div>
-    </div>
-</div>
-
-<!-- Author download overlay -->
-<div id="authorDownloadOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeAuthorDownload()">
-    <div class="settings-panel">
-        <h3>按作者下载</h3>
-        <div class="settings-field">
-            <label for="authorDlInput">作者 Pixiv ID（作者主页 URL 中的数字 ID）</label>
-            <input type="text" id="authorDlInput" placeholder="输入作者 ID，例如 2" autocomplete="off">
-            <span class="field-hint">将按顺序下载该作者的全部插画与漫画作品，已存在的作品会自动跳过。</span>
-        </div>
-        <div class="settings-actions">
-            <button onclick="confirmAuthorDownload()" class="btn-primary">开始下载</button>
-            <button onclick="closeAuthorDownload()">取消</button>
-        </div>
-        <div id="authorDlMsg" class="settings-msg" style="display:none;"></div>
     </div>
 </div>
 
@@ -489,9 +459,9 @@ function toggleSidebar() {
 function switchView(view) {
     const viewChanged = currentView !== view;
     currentView = view;
-    ['viewGallery', 'viewAuthors', 'viewTags', 'viewFavorites', 'viewSubscriptions'].forEach(v => $(v).classList.toggle('active', v === 'view' + view[0].toUpperCase() + view.slice(1)));
+    ['viewGallery', 'viewAuthors', 'viewTags', 'viewFavorites', 'viewBookmarkSubs'].forEach(v => $(v).classList.toggle('active', v === 'view' + view[0].toUpperCase() + view.slice(1)));
     $('btnGallery').classList.toggle('active', view === 'gallery');
-    $('btnSubscriptions').classList.toggle('active', view === 'subscriptions');
+    $('btnBookmarkSubs').classList.toggle('active', view === 'bookmarkSubs');
     $('btnAuthors').classList.toggle('active', view === 'authors');
     $('btnTags').classList.toggle('active', view === 'tags');
     $('btnFavorites').classList.toggle('active', view === 'favorites');
@@ -504,8 +474,8 @@ function switchView(view) {
         loadTagsView();
     } else if (view === 'favorites' && $('favoriteGrid').children.length === 0) {
         loadFavoritesView();
-    } else if (view === 'subscriptions' && $('subscriptionGrid').children.length === 0) {
-        loadSubscriptionsView();
+    } else if (view === 'bookmarkSubs' && $('bookmarkSubGrid').children.length === 0) {
+        loadBookmarkSubsView();
     }
 }
 
@@ -792,7 +762,7 @@ function updateBatchBar() {
 }
 
 function deleteArtworkFromTile(artworkId, title) {
-    openDeleteConfirm([artworkId], `确认删除作品 "${title}"？`);
+    openDeleteConfirm([artworkId], `确认删除作品「${title}」？`);
 }
 
 // ===== Batch operations =====
@@ -1047,62 +1017,62 @@ async function createFavorite(name) {
     }
 }
 
-async function deleteFavorite(favId, name) {
-    if (!confirm(`确认删除收藏夹 "${name}"？`)) return;
-    try {
-        await fetch(`/api/favorites/${favId}`, { method: 'DELETE' });
-        showToast('已删除收藏夹');
-        if (currentFilter.type === 'favorite' && currentFilter.value == favId) clearFilter();
-        loadFavoritesView();
-    } catch (e) {
-        showToast('删除失败：' + e.message);
-    }
+function deleteFavorite(favId, name) {
+    showConfirmDialog('删除收藏夹', `确认删除收藏夹「${name}」？收藏夹内的作品不会被删除。`, async function () {
+        try {
+            await fetch(`/api/favorites/${favId}`, { method: 'DELETE' });
+            showToast('已删除收藏夹');
+            if (currentFilter.type === 'favorite' && currentFilter.value == favId) clearFilter();
+            loadFavoritesView();
+        } catch (e) {
+            showToast('删除失败：' + e.message);
+        }
+    }, '删除');
 }
 
-// ===== Subscriptions =====
-let _subPreviewName = '';
+// ===== Bookmarks Subscriptions =====
+let _bmPreviewName = '';
 
-async function loadSubscriptionsView() {
-    const grid = $('subscriptionGrid');
+async function loadBookmarkSubsView() {
+    const grid = $('bookmarkSubGrid');
     grid.innerHTML = '<div class="loading">加载中...</div>';
     try {
-        const resp = await fetch('/api/subscriptions');
+        const resp = await fetch('/api/bookmark-subs');
         const subs = await resp.json();
         grid.innerHTML = '';
         if (!subs.length) {
-            grid.innerHTML = '<div class="empty-state">还没有订阅画师。\n点「订阅画师」输入 Pixiv ID，或从账号的关注/收藏批量导入。</div>';
+            grid.innerHTML = '<div class="empty-state">还没有订阅任何收藏列表。\n点「订阅收藏」输入用户的 Pixiv ID 即可订阅其公开收藏。</div>';
             return;
         }
         const frag = document.createDocumentFragment();
         subs.forEach(s => {
             const card = document.createElement('div');
             card.className = 'folder-card sub-card';
-            const name = escapeHtml(s.name || ('画师 ' + s.pixiv_user_id));
-            let lastSummary = '尚未检查';
-            if (s.last_pid) lastSummary = `游标 PID：${s.last_pid}`;
+            const name = escapeHtml(s.name || ('用户 ' + s.pixiv_user_id));
+            let cursorLine = s.last_pid ? ('游标 PID：' + s.last_pid) : '尚未检查（首次将下载全部公开收藏）';
             let resultLine = '';
             if (s.last_result) {
                 try {
                     const r = JSON.parse(s.last_result);
-                    resultLine = `上次：新 ${r.new || 0} · 下 ${r.downloaded || 0}${r.failed ? ' · 败 ' + r.failed : ''}`;
+                    resultLine = ` — 上次：新 ${r.new || 0} · 下 ${r.downloaded || 0}${r.failed ? ' · 败 ' + r.failed : ''}`;
                 } catch (e) {}
             }
             const checkedOn = s.auto_download ? 'checked' : '';
             card.innerHTML = `
                 <div class="folder-info sub-info">
                     <div class="folder-name">
-                        <svg class="icon"><use href="#i-rss"/></svg><span>${name}</span>
+                        ${s.author_id ? `<img class="sub-avatar" src="/api/authors/${s.author_id}/avatar" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}<span>${name}</span>
                     </div>
-                    <div class="folder-meta">ID ${s.pixiv_user_id} · 本地 ${s.local_works || 0} 件 · ${lastSummary}</div>
-                    <div class="folder-meta">${escapeHtml(s.last_checked || '')}${resultLine ? ' — ' + escapeHtml(resultLine) : ''}</div>
+                    <div class="folder-meta">用户 ID ${s.pixiv_user_id} · ${escapeHtml(cursorLine)}</div>
+                    <div class="folder-meta">${escapeHtml(s.last_checked || '从未检查')}${resultLine}</div>
                 </div>
                 <div class="sub-actions">
                     <label class="fav-check sub-auto">
-                        <input type="checkbox" ${checkedOn} onchange="toggleSubscriptionAuto(${s.pixiv_user_id})">
+                        <input type="checkbox" ${checkedOn} onchange="toggleBookmarkSub(${s.pixiv_user_id})">
                         自动下载
                     </label>
-                    <button class="batch-btn" onclick="checkOneSubscription(${s.pixiv_user_id})">检查</button>
-                    <button class="batch-btn danger" onclick="deleteSubscription(${s.pixiv_user_id}, '${escapeAttr(s.name || '')}')">退订</button>
+                    <button class="batch-btn" onclick="checkOneBookmarkSub(${s.pixiv_user_id})">检查</button>
+                    <button class="batch-btn danger" onclick="deleteBookmarkSub(${s.pixiv_user_id}, '${escapeAttr(s.name || '')}')">退订</button>
                 </div>`;
             frag.appendChild(card);
         });
@@ -1112,94 +1082,81 @@ async function loadSubscriptionsView() {
     }
 }
 
-function toggleSubscriptionAuto(uid) {
-    fetch(`/api/subscriptions/${uid}/toggle`, { method: 'POST' })
+function toggleBookmarkSub(uid) {
+    fetch(`/api/bookmark-subs/${uid}/toggle`, { method: 'POST' })
         .then(r => r.json())
-        .then(() => loadSubscriptionsView())
+        .then(() => loadBookmarkSubsView())
         .catch(() => showToast('操作失败'));
 }
 
-function deleteSubscription(uid, name) {
-    if (!confirm(`确认取消订阅 "${name || uid}"？（已下载的作品会保留）`)) return;
-    fetch(`/api/subscriptions/${uid}`, { method: 'DELETE' })
-        .then(r => r.json())
-        .then(() => { showToast('已取消订阅'); loadSubscriptionsView(); })
-        .catch(() => showToast('操作失败'));
+function deleteBookmarkSub(uid, name) {
+    showConfirmDialog('取消订阅', `确认取消订阅用户「${name || uid}」的收藏列表？已下载的作品会保留。`, function () {
+        fetch(`/api/bookmark-subs/${uid}`, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(() => { showToast('已取消订阅'); loadBookmarkSubsView(); })
+            .catch(() => showToast('操作失败'));
+    }, '退订');
 }
 
-function checkOneSubscription(uid) {
-    launchJob(`/api/subscriptions/${uid}/check`, 'subscription', 'POST');
+function checkOneBookmarkSub(uid) {
+    launchJob(`/api/bookmark-subs/${uid}/check`, 'bookmark_check', 'POST');
 }
 
-function openSubAdd() {
-    $('subAddInput').value = '';
-    $('subAddMsg').style.display = 'none';
-    $('subPreviewHint').textContent = '';
-    $('subAddCheckNow').checked = true;
-    _subPreviewName = '';
-    $('subAddOverlay').classList.remove('hidden');
-    $('subAddInput').focus();
+function openBmAdd() {
+    $('bmAddInput').value = '';
+    $('bmAddMsg').style.display = 'none';
+    $('bmPreviewHint').textContent = '';
+    $('bmAddCheckNow').checked = true;
+    _bmPreviewName = '';
+    $('bmAddOverlay').classList.remove('hidden');
+    $('bmAddInput').focus();
 }
 
-function closeSubAdd() {
-    $('subAddOverlay').classList.add('hidden');
+function closeBmAdd() {
+    $('bmAddOverlay').classList.add('hidden');
 }
 
-function resetSubPreview() {
-    $('subPreviewHint').textContent = '';
-    _subPreviewName = '';
+function resetBmPreview() {
+    $('bmPreviewHint').textContent = '';
+    _bmPreviewName = '';
 }
 
-function previewSubAdd() {
-    const id = $('subAddInput').value.trim();
-    const hint = $('subPreviewHint');
-    if (!/^\d+$/.test(id)) { hint.textContent = '请先输入数字画师 ID'; return; }
+function previewBmAdd() {
+    const id = $('bmAddInput').value.trim();
+    const hint = $('bmPreviewHint');
+    if (!/^\d+$/.test(id)) { hint.textContent = '请先输入数字用户 ID'; return; }
     hint.textContent = '正在查询…';
-    fetch('/api/subscriptions/preview/' + id)
+    fetch('/api/bookmark-subs/preview/' + id)
         .then(r => r.json())
         .then(d => {
             if (d.error) { hint.textContent = (d.error && (d.error.hint || d.error.message)) || '查询失败'; return; }
-            _subPreviewName = d.name || '';
-            hint.textContent = `${d.name}：检测到 ${d.count} 件新作品${d.subscribed ? '（已在订阅列表）' : '（按最近 3 页估算）'}`;
+            _bmPreviewName = d.name || '';
+            hint.textContent = `${d.name}：首页可见 ${d.first_page} 条公开收藏（首次订阅将沿列表下载全部新增）`;
         })
         .catch(() => { hint.textContent = '查询失败：无法连接服务器'; });
 }
 
-function confirmSubAdd() {
-    const id = $('subAddInput').value.trim();
-    const msg = $('subAddMsg');
-    if (!/^\d+$/.test(id)) { msg.textContent = '画师 ID 应为数字'; msg.style.display = 'block'; return; }
-    fetch('/api/subscriptions', {
+function confirmBmAdd() {
+    const id = $('bmAddInput').value.trim();
+    const msg = $('bmAddMsg');
+    if (!/^\d+$/.test(id)) { msg.textContent = '用户 ID 应为数字'; msg.style.display = 'block'; return; }
+    fetch('/api/bookmark-subs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: parseInt(id, 10), name: _subPreviewName })
+        body: JSON.stringify({ user_id: parseInt(id, 10), name: _bmPreviewName })
     })
         .then(r => r.json())
         .then(d => {
             if (d.error) { msg.textContent = d.error.message || '添加失败'; msg.style.display = 'block'; return; }
-            closeSubAdd();
-            showToast(d.exists ? '该画师已在订阅列表中' : '已添加订阅');
-            switchView('subscriptions');
-            loadSubscriptionsView();
-            if ($('subAddCheckNow').checked) {
-                launchJob(`/api/subscriptions/${id}/check`, 'subscription', 'POST');
+            closeBmAdd();
+            showToast(d.exists ? '该用户已在订阅列表中' : '已添加收藏订阅');
+            switchView('bookmarkSubs');
+            loadBookmarkSubsView();
+            if ($('bmAddCheckNow').checked) {
+                launchJob(`/api/bookmark-subs/${id}/check`, 'bookmark_check', 'POST');
             }
         })
         .catch(() => { msg.textContent = '添加失败：无法连接服务器'; msg.style.display = 'block'; });
-}
-
-function openSubImport() {
-    $('subImportOverlay').classList.remove('hidden');
-}
-
-function closeSubImport() {
-    $('subImportOverlay').classList.add('hidden');
-}
-
-function confirmSubImport() {
-    const source = $('subImportSource').value;
-    closeSubImport();
-    launchJob('/api/subscriptions/import?source=' + encodeURIComponent(source), 'subscription_import');
 }
 
 // ===== Favorite select dialog =====
@@ -1533,7 +1490,7 @@ function closeViewerToFavorite(favId, name) {
 function deleteCurrent() {
     if (!window._viewerArtworkId) return;
     const title = window._viewerTitle || '此作品';
-    openDeleteConfirm([window._viewerArtworkId], `确认删除作品 "${title}"？`);
+    openDeleteConfirm([window._viewerArtworkId], `确认删除作品「${title}」？`);
 }
 
 async function openInFolder() {
@@ -1569,12 +1526,11 @@ document.addEventListener('keydown', function (e) {
 let _jobPollTimer = null;
 let _jobCloseTimer = null;
 let _currentJobId = null;
-let _authorDownloadId = '';
 
 function setFabBusy(busy) {
     const scanBtn = $('btnScan');
     const syncBtn = $('btnSync');
-    [scanBtn, syncBtn, $('btnSubCheck')].forEach(b => {
+    [scanBtn, syncBtn, $('btnBookmarkCheck')].forEach(b => {
         if (!b) return;
         b.disabled = busy;
         b.style.opacity = busy ? 0.55 : 1;
@@ -1592,41 +1548,14 @@ function hideJobWindow() {
 
 function jobKindLabel(kind) {
     if (kind === 'scan') return '扫描图片';
-    if (kind === 'download_author') return '下载作者作品';
-    if (kind === 'subscription') return '订阅更新';
-    if (kind === 'subscription_import') return '导入订阅';
+    if (kind === 'bookmark_check') return '收藏订阅更新';
     return '同步元数据';
-}
-
-function openAuthorDownload() {
-    $('authorDlInput').value = '';
-    $('authorDlMsg').style.display = 'none';
-    $('authorDownloadOverlay').classList.remove('hidden');
-    $('authorDlInput').focus();
-}
-
-function closeAuthorDownload() {
-    $('authorDownloadOverlay').classList.add('hidden');
-}
-
-function confirmAuthorDownload() {
-    const id = ($('authorDlInput').value || '').trim();
-    const msg = $('authorDlMsg');
-    if (!id) { msg.textContent = '请输入作者 ID'; msg.style.display = 'block'; return; }
-    if (!/^\d+$/.test(id)) { msg.textContent = '作者 ID 应为数字'; msg.style.display = 'block'; return; }
-    _authorDownloadId = id;
-    closeAuthorDownload();
-    if (currentView !== 'gallery') switchView('gallery');
-    startJob('download_author');
 }
 
 function startJob(kind) {
     let reqUrl = kind === 'scan' ? '/api/scan' : '/api/sync';
-    if (kind === 'download_author') {
-        reqUrl = '/api/download-author?author_id=' + encodeURIComponent(_authorDownloadId);
-    }
-    if (kind === 'subscription') {
-        reqUrl = '/api/subscriptions/check';
+    if (kind === 'bookmark_check') {
+        reqUrl = '/api/bookmark-subs/check';
     }
     launchJob(reqUrl, kind);
 }
@@ -1715,14 +1644,9 @@ function finishJob(d) {
         loadGallery(1);
         if ($('viewAuthors').classList.contains('active')) loadAuthorsView();
         if ($('viewTags').classList.contains('active')) loadTagsView();
-    } else if (d.kind === 'download_author') {
-        const rd = d.result || {};
-        if (rd.cancelled || rd.downloaded > 0) showToast('下载完成，可点击「扫描图片」入库');
-    } else if (d.kind === 'subscription') {
+    } else if (d.kind === 'bookmark_check') {
         loadGallery(1);
-        loadSubscriptionsView();
-    } else if (d.kind === 'subscription_import') {
-        loadSubscriptionsView();
+        loadBookmarkSubsView();
     }
     clearTimeout(_jobCloseTimer);
     _jobCloseTimer = setTimeout(hideJobWindow, 3500);
@@ -1742,32 +1666,19 @@ function renderJobResult(d) {
         if (r.thumbnails) {
             html += `<br>缩略图：生成 ${r.thumbnails.generated || 0} · 失败 ${r.thumbnails.failed || 0}`;
         }
-    } else if (d.kind === 'download_author') {
-        html = `下载完成<br>作者 ${escapeHtml(r.author_name || r.author_id) || ''}<br>共 ${r.total || 0} 件 · 下载 ${r.downloaded || 0} · 跳过 ${r.skipped || 0} · 失败 ${r.failed || 0}`;
-        if (r.cancelled) html += `<br>任务已中途停止`;
-        const fails = (r.details || []).filter(x => x.status === 'failed').slice(0, 3);
-        if (fails.length) {
-            html += `<div class="job-err-line">失败示例：<br>${fails.map(f => `PID ${f.pixiv_id}：${escapeHtml(f.error)}`).join('<br>')}</div>`;
-        }
-        if (r.auth_error) {
-            html += `<div class="job-err-line">认证错误：${escapeHtml(r.auth_error)}</div>`;
-        }
-        html += `<div class="job-err-line">文件已写入本地目录，运行「扫描图片」后入库。</div>`;
-    } else if (d.kind === 'subscription') {
-        html = `订阅更新完成<br>检查 ${r.checked || 0} 个订阅 · 发现新作品 ${r.new_found || 0} · 下载 ${r.downloaded || 0} · 失败 ${r.failed || 0}`;
+    } else if (d.kind === 'bookmark_check') {
+        html = `收藏订阅更新完成<br>检查 ${r.checked || 0} 个订阅 · 新增收藏 ${r.new_found || 0} · 下载 ${r.downloaded || 0} · 失败 ${r.failed || 0}`;
         if (r.cancelled) html += `<br>任务已中途停止`;
         if ((r.subs || []).length) {
             html += `<div class="job-err-line">${r.subs.map(s =>
-                `${escapeHtml(s.author_name)}：新 ${s.new} · 下载 ${s.downloaded}${s.failed ? ' · 失败 ' + s.failed : ''}`
+                `用户 ${s.pixiv_user_id}：新收藏 ${s.new} · 下载 ${s.downloaded}${s.failed ? ' · 失败 ' + s.failed : ''}`
             ).join('<br>')}</div>`;
         }
         if (r.scan) {
             html += `<div class="job-err-line">入库：新作品 ${r.scan.new_artworks || 0} · 新图片 ${r.scan.new_images || 0}${r.synced ? ' · 元数据同步 ' + r.synced : ''}</div>`;
         } else if (!r.cancelled) {
-            html += `<div class="job-err-line">没有新增文件，无需入库。</div>`;
+            html += `<div class="job-err-line">没有新增收藏，无需入库。</div>`;
         }
-    } else if (d.kind === 'subscription_import') {
-        html = `导入完成<br>发现画师 ${r.found || 0} · 新增订阅 ${r.added || 0} · 已存在 ${r.skipped_existing || 0}`;
     } else {
         html = `同步完成<br>成功 ${r.synced || 0} · 已删除 ${r.deleted || 0} · 失败 ${r.failed || 0}`;
         const fails = (r.details || []).filter(x => x.status === 'failed').slice(0, 3);
@@ -1821,6 +1732,25 @@ function showToast(msg) {
     t.classList.add('visible');
     clearTimeout(_toastTimer);
     _toastTimer = setTimeout(() => t.classList.remove('visible'), 3500);
+}
+
+// ===== 通用确认弹窗（替代原生 confirm） =====
+let _cdCallback = null;
+function showConfirmDialog(title, message, onConfirm, okText) {
+    $('cdTitle').textContent = title || '确认操作';
+    $('cdMsg').textContent = message || '';
+    $('cdOkBtn').textContent = okText || '确认';
+    _cdCallback = onConfirm;
+    $('confirmDialogOverlay').classList.remove('hidden');
+}
+function closeConfirmDialog() {
+    $('confirmDialogOverlay').classList.add('hidden');
+    _cdCallback = null;
+}
+function doConfirmDialog() {
+    const cb = _cdCallback;
+    closeConfirmDialog();
+    if (cb) cb();
 }
 
 // ===== R18 显示模式 / 已删除快速筛选 / 设置分页 =====
@@ -1903,7 +1833,7 @@ function setSafeMode(on) {
 function updateSafeBadge() {
     const on = document.documentElement.classList.contains('safe-mode');
     const badge = $('safeBadge');
-    if (badge) badge.style.display = on ? 'inline-block' : 'none';
+    if (badge) badge.style.display = on ? 'inline-flex' : 'none';
 }
 
 function openExternalBrowser() {
@@ -1935,7 +1865,7 @@ async function openSettings() {
         $('settingMirrorToggle').checked = !!mirror;
         $('settingImageMirror').value = mirror;
         $('mirrorHint').textContent = mirror
-            ? `当前: 图片下载走 ${mirror}（仅影响「按作者下载」与头像抓取；同步元数据不涉及图片）`
+            ? `当前: 图片下载走 ${mirror}（仅影响收藏订阅下载与头像抓取；同步元数据不涉及图片）`
             : '关闭时使用 Pixiv 官方 i.pximg.net。部分镜像不支持无 Referer 图片或头像，会失败或自动回退';
         onMirrorToggleChange();
         $('settingToken').value = '';
@@ -2161,10 +2091,9 @@ document.addEventListener('keydown', function (e) {
         // 依次关闭最上层的模态弹窗
         const closers = [
             ['favSelectOverlay', closeFavSelect],
-            ['subAddOverlay', closeSubAdd],
-            ['subImportOverlay', closeSubImport],
+            ['bmAddOverlay', closeBmAdd],
+            ['confirmDialogOverlay', closeConfirmDialog],
             ['settingsOverlay', closeSettings],
-            ['authorDownloadOverlay', closeAuthorDownload],
             ['deleteConfirmOverlay', closeDeleteConfirm],
         ];
         for (const [id, fn] of closers) {

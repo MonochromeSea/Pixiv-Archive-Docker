@@ -103,7 +103,7 @@ def init_db():
             FOREIGN KEY (artwork_id) REFERENCES artworks(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS subscriptions (
+        CREATE TABLE IF NOT EXISTS bookmark_subs (
             pixiv_user_id INTEGER PRIMARY KEY,
             name TEXT,
             last_pid INTEGER,
@@ -126,9 +126,24 @@ def init_db():
     """)
 
     _migrate_sync_error(conn)
+    _migrate_drop_artist_subs(conn)
+    _migrate_bookmark_subs_col(conn)
 
     conn.commit()
     conn.close()
+
+
+def _migrate_bookmark_subs_col(conn):
+    """bookmark_subs 游标列语义修正：last_bid → last_pid（收藏项不含 bookmark_data.id，
+    改用最大作品 PID 作增量游标）。"""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(bookmark_subs)").fetchall()}
+    if "last_bid" in cols and "last_pid" not in cols:
+        conn.execute("ALTER TABLE bookmark_subs RENAME COLUMN last_bid TO last_pid")
+
+
+def _migrate_drop_artist_subs(conn):
+    """v1.2.1：画师订阅功能已被「收藏订阅」(bookmark_subs) 取代，旧表数据丢弃。"""
+    conn.execute("DROP TABLE IF EXISTS subscriptions")
 
 
 def _migrate_sync_error(conn):

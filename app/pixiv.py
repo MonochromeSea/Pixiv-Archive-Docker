@@ -221,32 +221,8 @@ class PixivClient:
         """把 pixiv 返回的 next_url 解析成翻页参数 dict（offset / max_bookmark_id 等）。"""
         return AppPixivAPI.parse_qs(next_url)
 
-    def list_user_illusts(self, user_id, illust_type="illust", offset=None):
-        """取画师作品一页（按发布时间倒序，最新在前）。返回 (illusts, next_url)。"""
-        try:
-            self._ensure_auth()
-            response = self.api.user_illusts(user_id, type=illust_type, offset=offset)
-        except Exception as e:
-            raise PixivNetworkError(f"请求画师作品列表失败：{e}")
-        if response.get("error"):
-            raise PixivNetworkError(_fmt_error(response.get("error")))
-        return response.get("illusts", []), response.get("next_url")
-
-    def list_user_following(self, user_id, offset=None):
-        """取关注列表一页。返回 (users, next_url)。"""
-        try:
-            self._ensure_auth()
-            response = self.api.user_following(user_id, offset=offset)
-        except Exception as e:
-            raise PixivNetworkError(f"请求关注列表失败：{e}")
-        if response.get("error"):
-            raise PixivNetworkError(_fmt_error(response.get("error")))
-        body = response.get("response") or {}
-        users = body.get("users", []) if isinstance(body, dict) else []
-        return users, response.get("next_url")
-
     def list_user_bookmarks(self, user_id, max_bookmark_id=None):
-        """取收藏作品一页。返回 (illusts, next_url)。"""
+        """取用户公开收藏列表一页（按收藏时间倒序）。返回 (illusts, next_url)。"""
         try:
             self._ensure_auth()
             response = self.api.user_bookmarks_illust(
@@ -258,14 +234,18 @@ class PixivClient:
             raise PixivNetworkError(_fmt_error(response.get("error")))
         return response.get("illusts", []), response.get("next_url")
 
-    def get_my_user_id(self):
-        """user_detail 无参调用返回认证令牌所属用户。失败返回 None。"""
+    def get_user_display_name(self, user_id):
+        """取用户显示名（user_detail），失败回退为 ID 字符串。"""
         try:
             self._ensure_auth()
-            response = self.api.user_detail(None)
-            return (response.get("user") or {}).get("id")
+            detail = self.api.user_detail(user_id)
+            if not detail.get("error"):
+                name = (detail.get("user") or {}).get("name", "")
+                if name:
+                    return name
         except Exception:
-            return None
+            pass
+        return str(user_id)
 
     def _retry_direct(self, illust_id):
         """auto-direct 模式下刷新直连 IP 并重试一次。"""
