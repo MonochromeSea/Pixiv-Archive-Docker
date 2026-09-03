@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  pixiv-archive:
+    image: pixiv-archive:latest
+    container_name: pixiv-archive
+    restart: unless-stopped
+    ports:
+      - "6814:6814"
+    volumes:
+      # 你的真实图片目录（替换为实际路径，例如 /vol1/1000/Pictures）
+      - ./pictures:/pictures
+      # 数据持久化目录（数据库、缩略图等）
+      - ./data:/data
+    environment:
+      - TZ=Asia/Shanghai
