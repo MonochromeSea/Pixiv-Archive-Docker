@@ -2,13 +2,15 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [ "main" ]       # 当 main 分支有推送时触发
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]       # 可选：PR 时也构建但不推送
+    branches: [ "main" ]
 
 env:
-  REGISTRY: docker.io          # 或 ghcr.io（GitHub Container Registry）
+  REGISTRY: docker.io
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/pixiv-archive
+  # 临时允许使用 Node 20，消除弃用警告
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
   build:
@@ -41,7 +43,6 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          # file: ./Dockerfile          # 如果 Dockerfile 在根目录，则省略此行
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
