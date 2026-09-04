@@ -1,3 +1,4 @@
+```markdown
 # Pixiv Archive - Docker 版
 
 一个本地运行的 Pixiv 图库归档与浏览工具：扫描你本地已下载的 Pixiv 图片，构建可搜索的作品数据库并生成缩略图，然后通过本地网页界面进行浏览、搜索、按作者/标签/收藏夹整理，并可联网同步作品的元数据（标题、标签、作者信息等）。
@@ -43,8 +44,8 @@ docker run -d --name pixiv-archive \
 docker run -d --name pixiv-archive \
   -p 6814:6814 \
   -v /path/to/your/pixiv/data:/app/data \
-  -v /path/to/your/pictures:/app/pictures \
-  -e PA_PICTURES_DIR=/app/pictures \
+  -v /path/to/your/pictures:/app/data/images \
+  -e IMAGE_SOURCE_DIR=/app/data/images \
   --restart unless-stopped \
   monomm/pixiv-archive:latest
 ```
@@ -52,8 +53,8 @@ docker run -d --name pixiv-archive \
 **参数说明**：
 - `-p 6814:6814`：将容器端口映射到宿主机
 - `-v /path/to/your/pixiv/data:/app/data`：挂载数据目录（持久化数据库、缩略图、配置文件等）
-- `-v /path/to/your/pictures:/app/pictures`：**【可选】** 挂载你存放 Pixiv 图片的目录，方便扫描入库
-- `-e PA_PICTURES_DIR=/app/pictures`：告诉程序图片目录的位置（与挂载路径一致）
+- `-v /path/to/your/pictures:/app/data/images`：**【可选】** 挂载你存放 Pixiv 图片的目录，方便扫描入库（容器内路径需与 `IMAGE_SOURCE_DIR` 一致）
+- `-e IMAGE_SOURCE_DIR=/app/data/images`：告诉程序图片目录的位置（与挂载路径一致）
 - `--restart unless-stopped`：容器退出时自动重启
 
 > 如果仅挂载数据目录，后续可以通过网页设置的“图库路径”手动指定图片目录。
@@ -90,16 +91,22 @@ http://你的服务器IP:6814/?token=你的令牌
 |------|------|--------|
 | `PA_HOST` | 绑定地址 | `0.0.0.0` |
 | `PA_PORT` | 服务端口 | `6814` |
-| `PA_TOKEN` | 自定义访问令牌 | 自动生成 |
-| `PA_PICTURES_DIR` | 图片扫描目录（需挂载对应卷） | `/app/data/pictures` |
+| `PA_ACCESS_TOKEN` | 自定义访问令牌（空则自动生成） | （空） |
+| `IMAGE_SOURCE_DIR` | 图片扫描目录（需挂载对应卷） | `/app/data/images` |
+| `PIXIV_REFRESH_TOKEN` | Pixiv refresh token（同步元数据必需） | （空） |
+| `PIXIV_MODE` | 网络模式：direct / proxy / auto | `auto` |
+| `PIXIV_PROXY` | 代理地址，如 `http://127.0.0.1:7890` | （空） |
+| `THUMBNAIL_SIZE` | 缩略图边长 | `400` |
 | `PYTHONUNBUFFERED` | 日志实时输出 | `1` |
+
+> **注意**：`PA_ACCESS_TOKEN` 和 `PIXIV_REFRESH_TOKEN` 等敏感信息建议通过 `-e` 传入，也可在网页设置中修改并持久化到 `.env` 文件。
 
 示例（自定义令牌 + 指定图片目录）：
 ```bash
 docker run -d --name pixiv-archive \
   -p 6814:6814 \
-  -e PA_TOKEN=mysecret123 \
-  -e PA_PICTURES_DIR=/app/pictures \
+  -e PA_ACCESS_TOKEN=mysecret123 \
+  -e IMAGE_SOURCE_DIR=/app/pictures \
   -v /path/to/data:/app/data \
   -v /path/to/pictures:/app/pictures \
   monomm/pixiv-archive:latest
@@ -112,11 +119,12 @@ docker run -d --name pixiv-archive \
 容器内数据存储在 `/app/data` 目录，包含：
 - `archive.db`：SQLite 数据库
 - `thumbnails/`：缩略图缓存
-- `.env`：环境配置文件
+- `metadata/`：作品元数据缓存
+- `.env`：环境配置文件（网页设置修改后保存在此）
 
 **务必挂载此目录**，否则容器重建后数据将丢失。
 
-图片目录（通过 `PA_PICTURES_DIR` 指定）建议挂载到容器内，以便程序直接扫描。
+图片目录（通过 `IMAGE_SOURCE_DIR` 指定）建议挂载到容器内，以便程序直接扫描。
 
 ---
 
@@ -134,7 +142,8 @@ docker run -d --name pixiv-archive \
 
 ### Q：如何关闭局域网访问令牌？
 
-移除 `--lan` 启动参数即可（本镜像默认已开启令牌保护，如需关闭请自行构建）。
+容器默认已启用 `--lan` 参数（令牌保护）。如需完全关闭，请自行构建镜像并移除该参数，或覆盖启动命令：  
+`docker run ... monomm/pixiv-archive:latest python -u run.py`（去掉 `--lan`）。
 
 ### Q：端口被占用怎么办？
 
@@ -148,9 +157,13 @@ docker logs pixiv-archive --tail 100 -f
 
 ### Q：图片目录挂载后依然扫描不到图片？
 
-- 检查环境变量 `PA_PICTURES_DIR` 是否与挂载路径一致。
-- 进入容器确认挂载是否成功：`docker exec -it pixiv-archive ls /app/pictures`。
+- 检查环境变量 `IMAGE_SOURCE_DIR` 是否与挂载路径一致。
+- 进入容器确认挂载是否成功：`docker exec -it pixiv-archive ls /app/data/images`（或你指定的目录）。
 - 在网页设置的“图库路径”中重新指定目录。
+
+### Q：在网页修改配置后重启容器，设置丢失怎么办？
+
+本镜像已内置 `.env` 持久化机制，网页修改的环境变量会保存在 `/app/data/.env`，容器重启时会自动加载并覆盖环境变量，设置不会丢失。
 
 ---
 
@@ -166,10 +179,15 @@ GPL-3.0 License
 
 ---
 
-## 📌 主要更新点
+### 🎯 主要修正点总结
 
-1. **快速开始**中增加了“完整命令”示例，包含 `/pictures` 映射和环境变量 `PA_PICTURES_DIR`。
-2. **环境变量表格**新增 `PA_PICTURES_DIR` 项，说明用途和默认值。
-3. **常见问题**补充了图片目录扫描失败的排查方法。
+| 原内容 | 修正内容 |
+|--------|----------|
+| `PA_TOKEN` | `PA_ACCESS_TOKEN` |
+| `PA_PICTURES_DIR` | `IMAGE_SOURCE_DIR` |
+| 默认图片路径 `/app/data/pictures` | `/app/data/images` |
+| 缺少 `PIXIV_REFRESH_TOKEN` 等变量 | 补全常用变量表 |
+| 未提及 `.env` 持久化 | 补充说明网页修改可持久化 |
+| 关闭令牌的说明不准确 | 明确需修改 CMD 或自行构建 |
 
-现在你可以直接复制以上内容，在 Docker Hub 仓库的设置中更新概述。😊
+现在这份 README 完全匹配您最终构建的镜像行为。您可以直接复制替换 Docker Hub 仓库的概述。😊
