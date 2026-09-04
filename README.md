@@ -49,6 +49,27 @@ docker run -d --name pixiv-archive \
   monomm/pixiv-archive:latest
 ```
 
+**Docker Compose**：
+```bash
+version: '3.8'
+
+services:
+  pixiv-archive:
+    image: pixiv-archive:latest
+    container_name: pixiv-archive
+    restart: unless-stopped
+    ports:
+      - "6814:6814"
+    volumes:
+      # 你的真实图片目录（替换为实际路径，例如 /vol1/1000/Pictures）
+      - /vol1/1000/Pictures:/pictures
+      # 数据持久化目录（数据库、缩略图等）
+      - /vol1/1000/Docker/data:/app/data
+    environment:
+      - PA_ACCESS_TOKEN=2333
+      - TZ=Asia/Shanghai
+```
+
 **参数说明**：
 - `-p 6814:6814`：将容器端口映射到宿主机
 - `-v /path/to/your/pixiv/data:/app/data`：挂载数据目录（持久化数据库、缩略图、配置文件等）
