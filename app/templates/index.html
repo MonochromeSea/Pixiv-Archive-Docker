@@ -19,9 +19,9 @@
             } catch (e) {}
         })();
     </script>
-    <script src="/static/js/pa_token.js"></script>
+    <script src="/static/js/pa_token.js?v=20260907-auth1"></script>
     <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260907-ui4">
 </head>
 <body>
 
@@ -87,7 +87,7 @@
         <button class="top-btn" id="btnR18" onclick="cycleR18()" title="切换 R18 显示模式">R18：全部</button>
         <button class="top-btn" id="btnDeleted" onclick="toggleDeletedFilter()" title="只看已删除作品">已删除</button>
         <div class="topbar-spacer"></div>
-        <button class="top-btn gallery-mode-btn active" id="btnExpandPages" onclick="toggleExpandPages()" title="展开多页作品的全部图片">展开页码</button>
+        <button class="top-btn gallery-mode-btn is-expanded" id="btnExpandPages" onclick="toggleExpandPages()" title="展开多页作品的全部图片">展开页码</button>
     </header>
 
     <main>
@@ -164,7 +164,9 @@
 <div class="job-window hidden" id="jobWindow">
     <div class="job-head">
         <span class="job-title" id="jobTitle">任务</span>
-        <button class="job-close" id="jobClose" onclick="closeJobWindow()" title="停止并关闭">✕</button>
+        <button class="job-close" id="jobClose" onclick="closeJobWindow()" title="停止并关闭" aria-label="停止并关闭">
+            <svg class="icon"><use href="#i-x"/></svg>
+        </button>
     </div>
     <div class="job-body" id="jobBody">
         <div class="job-message" id="jobPhase">准备中…</div>
@@ -182,7 +184,7 @@
         <div id="cdMsg" class="settings-field" style="font-size:14px;line-height:1.7;"></div>
         <div class="settings-actions">
             <button id="cdOkBtn" onclick="doConfirmDialog()" class="btn-danger">确认</button>
-            <button onclick="closeConfirmDialog()">取消</button>
+            <button onclick="closeConfirmDialog()" class="btn-secondary">取消</button>
         </div>
     </div>
 </div>
@@ -199,7 +201,7 @@
         </div>
         <div class="settings-actions">
             <button onclick="confirmDelete()" class="btn-danger">删除</button>
-            <button onclick="closeDeleteConfirm()">取消</button>
+            <button onclick="closeDeleteConfirm()" class="btn-secondary">取消</button>
         </div>
         <div id="delMsgResult" class="settings-msg" style="display:none;"></div>
     </div>
@@ -276,7 +278,7 @@
         <div id="bmAddMsg" class="settings-msg" style="display:none;"></div>
         <div class="settings-actions">
             <button onclick="confirmBmAdd()" class="btn-primary">订阅</button>
-            <button onclick="closeBmAdd()">取消</button>
+            <button onclick="closeBmAdd()" class="btn-secondary">取消</button>
         </div>
     </div>
 </div>
@@ -292,7 +294,7 @@
         </div>
         <div class="settings-actions">
             <button onclick="confirmFavSelect()" class="btn-primary">确认收藏</button>
-            <button onclick="closeFavSelect()">取消</button>
+            <button onclick="closeFavSelect()" class="btn-secondary">取消</button>
         </div>
         <div id="favSelectMsg" class="settings-msg" style="display:none;"></div>
     </div>
@@ -310,7 +312,7 @@
         <div id="createFavMsg" class="settings-msg" style="display:none;"></div>
         <div class="settings-actions">
             <button onclick="confirmCreateFavorite()" class="btn-primary">创建</button>
-            <button onclick="closeCreateFavorite()">取消</button>
+            <button onclick="closeCreateFavorite()" class="btn-secondary">取消</button>
         </div>
     </div>
 </div>
@@ -338,7 +340,7 @@
                 <div class="source-dir-list" id="sourceDirList">
                     <div class="source-dir-row">
                         <input type="text" id="settingDir" placeholder="例如 D:\Pixiv">
-                        <button type="button" class="settings-icon-btn" onclick="addSourceDirInput()" title="新增图片目录">
+                        <button type="button" class="top-btn settings-icon-btn source-dir-action" onclick="addSourceDirInput()" title="新增图片目录" aria-label="新增图片目录">
                             <svg class="icon"><use href="#i-plus"/></svg>
                         </button>
                     </div>
@@ -346,9 +348,9 @@
                 <span class="field-hint" id="dirHint"></span>
             </div>
             <div class="settings-field">
-                <label class="fav-check">
+                <label class="settings-check">
                     <input type="checkbox" id="settingAutoWatch">
-                    自动监看本地图片目录
+                    <span>自动监看本地图片目录</span>
                 </label>
                 <span class="field-hint" id="autoWatchHint"></span>
             </div>
@@ -363,9 +365,9 @@
                 <span class="field-hint" id="tokenHint2"></span>
             </div>
             <div class="settings-field">
-                <label class="fav-check">
+                <label class="settings-check">
                     <input type="checkbox" id="settingSafeMode" onchange="setSafeMode(this.checked)">
-                    安全模式（模糊所有图片）
+                    <span>安全模式（模糊所有图片）</span>
                 </label>
                 <span class="field-hint">开启后所有图片将模糊显示，适合演示 / 屏幕共享时保护内容。</span>
             </div>
@@ -417,14 +419,14 @@
         </div>
         <div class="settings-actions">
             <button onclick="saveSettings()" class="btn-primary">保存</button>
-            <button onclick="closeSettings()">取消</button>
+            <button onclick="closeSettings()" class="btn-secondary">取消</button>
         </div>
         <div id="settingsMsg" class="settings-msg" style="display:none;"></div>
     </div>
 </div>
 
 <!-- Toast -->
-<div class="toast" id="toast"></div>
+<div class="toast job-window" id="toast" role="status" aria-live="polite"></div>
 
 <!-- 自定义右键菜单 -->
 <div class="ctx-menu hidden" id="ctxMenu"></div>
@@ -595,7 +597,8 @@ function clearFilter() {
 function updateExpandPagesButton() {
     const btn = $('btnExpandPages');
     if (!btn) return;
-    btn.classList.toggle('active', expandPages);
+    btn.classList.toggle('is-expanded', expandPages);
+    btn.classList.toggle('is-merged', !expandPages);
     btn.textContent = expandPages ? '展开页码' : '合并作品';
     btn.title = expandPages ? '当前：多页作品全部图片一起展示' : '当前：一个作品只显示 p1 封面';
 }
@@ -879,9 +882,9 @@ function renderPagination(data) {
     if (data.total_pages <= 1) { pag.style.display = 'none'; return; }
     pag.style.display = 'flex';
     pag.innerHTML = `
-        <button ${data.page <= 1 ? 'disabled' : ''} onclick="goPage(${data.page - 1})">上一页</button>
+        <button class="page-btn" ${data.page <= 1 ? 'disabled' : ''} onclick="goPage(${data.page - 1})">上一页</button>
         <span class="page-info">第 ${data.page} / ${data.total_pages} 页</span>
-        <button ${data.page >= data.total_pages ? 'disabled' : ''} onclick="goPage(${data.page + 1})">下一页</button>`;
+        <button class="page-btn" ${data.page >= data.total_pages ? 'disabled' : ''} onclick="goPage(${data.page + 1})">下一页</button>`;
 }
 
 function goPage(page) {
@@ -1008,7 +1011,7 @@ async function loadFavoritesView() {
                     <div class="folder-name"><svg class="icon"><use href="#i-folder"/></svg><span>${escapeHtml(f.name)}</span></div>
                     <div class="folder-meta">${f.artwork_count} 个作品</div>
                 </div>
-                <button class="folder-delete" onclick="deleteFavorite(${f.id}, '${escapeAttr(f.name)}')" title="删除收藏夹">×</button>`;
+            <button class="folder-delete" onclick="deleteFavorite(${f.id}, '${escapeAttr(f.name)}')" title="删除收藏夹" aria-label="删除收藏夹"><svg class="icon"><use href="#i-x"/></svg></button>`;
             frag.appendChild(card);
         });
         grid.appendChild(frag);
@@ -2010,8 +2013,8 @@ function renderSourceDirs(dirs) {
         row.innerHTML = `
             <input type="text" ${idx === 0 ? 'id="settingDir"' : ''} placeholder="例如 D:\\Pixiv" value="${escapeAttr(value)}">
             ${idx === 0
-                ? '<button type="button" class="settings-icon-btn" onclick="addSourceDirInput()" title="新增图片目录"><svg class="icon"><use href="#i-plus"/></svg></button>'
-                : '<button type="button" class="settings-icon-btn danger" onclick="removeSourceDirInput(this)" title="移除此目录">×</button>'}`;
+                ? '<button type="button" class="top-btn settings-icon-btn source-dir-action" onclick="addSourceDirInput()" title="新增图片目录" aria-label="新增图片目录"><svg class="icon"><use href="#i-plus"/></svg></button>'
+                : '<button type="button" class="top-btn settings-icon-btn source-dir-action danger" onclick="removeSourceDirInput(this)" title="移除此目录" aria-label="移除此目录"><svg class="icon"><use href="#i-x"/></svg></button>'}`;
         list.appendChild(row);
     });
 }
