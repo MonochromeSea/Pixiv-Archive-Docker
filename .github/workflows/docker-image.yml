@@ -1,0 +1,72 @@
+name: Release Docker Image
+
+on:
+  push:
+    tags:
+      - "*"
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/pixiv-archive
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set release variables
+        id: vars
+        shell: bash
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${REGISTRY}/${IMAGE_NAME}:${TAG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push tag image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.vars.outputs.image_tag }}
+          labels: |
+            org.opencontainers.image.title=Pixiv Archive
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.vars.outputs.tag_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create GitHub release package
+        shell: bash
+        run: |
+          mkdir -p release
+          tar \
+            --exclude='./.git' \
+            --exclude='./release' \
+            --exclude='./data' \
+            --exclude='./__pycache__' \
+            --exclude='./app/__pycache__' \
+            -czf "release/pixiv-archive-docker-${GITHUB_REF_NAME}.tar.gz" .
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          name: Pixiv Archive ${{ steps.vars.outputs.tag_name }}
+          generate_release_notes: true
+          files: release/pixiv-archive-docker-${{ steps.vars.outputs.tag_name }}.tar.gz
