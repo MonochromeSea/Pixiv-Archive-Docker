@@ -199,15 +199,3 @@ GPL-3.0 License
 
 ---
 
-### 🎯 主要修正点总结
-
-| 原内容 | 修正内容 |
-|--------|----------|
-| `PA_TOKEN` | `PA_ACCESS_TOKEN` |
-| `PA_PICTURES_DIR` | `IMAGE_SOURCE_DIR` |
-| 默认图片路径 `/app/data/pictures` | `/app/data/images` |
-| 缺少 `PIXIV_REFRESH_TOKEN` 等变量 | 补全常用变量表 |
-| 未提及 `.env` 持久化 | 补充说明网页修改可持久化 |
-| 关闭令牌的说明不准确 | 明确需修改 CMD 或自行构建 |
-
-现在这份 README 完全匹配您最终构建的镜像行为。您可以直接复制替换 Docker Hub 仓库的概述。😊
