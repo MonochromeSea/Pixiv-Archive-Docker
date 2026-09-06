@@ -521,6 +521,24 @@ html.sb-collapsed .safe-badge {
     color: var(--accent);
 }
 
+.gallery-mode-btn {
+    width: 86px;
+    justify-content: center;
+    font-weight: 600;
+}
+
+.gallery-mode-btn.active {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.gallery-mode-btn:not(.active) {
+    color: var(--text);
+    background: var(--surface-3);
+    border-color: var(--border);
+}
+
 .topbar-spacer {
     flex: 1;
 }
@@ -1414,6 +1432,45 @@ html.sb-collapsed .safe-badge {
     border: 1px solid var(--border);
     border-radius: 10px;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.source-dir-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.source-dir-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.source-dir-row input {
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-icon-btn {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.settings-icon-btn:hover {
+    background: var(--surface-3);
+}
+
+.settings-icon-btn.danger {
+    color: var(--danger);
 }
 
 .field-hint {
