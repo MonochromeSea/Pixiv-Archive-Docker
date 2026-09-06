@@ -1,6 +1,6 @@
 services:
   pixiv-archive:
-    image: pixiv-archive:local
+    image:  monomm/pixiv-archive:Ver_1.2.1_Fin_Docker
     build:
       context: .
       args:
@@ -11,7 +11,7 @@ services:
       - "6814:6814"
     volumes:
       - ./data:/app/data
-      - "/vol6/1000/下载/Aria2下载/Shaft/R18/AI/(114706119):/app/data/images:ro"
+      - "./images:/app/data/images:ro"
     environment:
       TZ: Asia/Shanghai
       PA_HOST: 0.0.0.0
