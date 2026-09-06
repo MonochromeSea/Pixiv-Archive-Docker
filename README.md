@@ -197,5 +197,3 @@ GPL-3.0 License
 - [上游项目](https://github.com/Tumber-ZM/Pixiv-Archive)
 ```
 
----
-
