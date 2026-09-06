@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, for example v1.2.2"
+        required: true
+        type: string
 
 env:
   REGISTRY: docker.io
@@ -19,12 +25,23 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Set release variables
         id: vars
         shell: bash
         run: |
-          TAG_NAME="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ inputs.tag }}"
+            if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+              echo "Tag does not exist: ${TAG_NAME}" >&2
+              exit 1
+            fi
+          else
+            TAG_NAME="${GITHUB_REF_NAME}"
+          fi
           echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
           echo "image_tag=${REGISTRY}/${IMAGE_NAME}:${TAG_NAME}" >> "$GITHUB_OUTPUT"
 
@@ -54,6 +71,7 @@ jobs:
       - name: Create GitHub release package
         shell: bash
         run: |
+          TAG_NAME="${{ steps.vars.outputs.tag_name }}"
           mkdir -p release
           tar \
             --exclude='./.git' \
@@ -61,7 +79,7 @@ jobs:
             --exclude='./data' \
             --exclude='./__pycache__' \
             --exclude='./app/__pycache__' \
-            -czf "release/pixiv-archive-docker-${GITHUB_REF_NAME}.tar.gz" .
+            -czf "release/pixiv-archive-docker-${TAG_NAME}.tar.gz" .
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
