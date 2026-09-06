@@ -57,6 +57,18 @@ if LAN_MODE and not ACCESS_TOKEN:
 
 _PUBLIC_PREFIXES = ("/static/", "/thumbnails/")
 _LOCAL_CLIENTS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
+_SETTING_ENV_KEYS = (
+    "PIXIV_REFRESH_TOKEN",
+    "IMAGE_SOURCE_DIR",
+    "IMAGE_SOURCE_DIRS",
+    "PIXIV_PROXY",
+    "PIXIV_MODE",
+    "PIXIV_IMAGE_MIRROR",
+    "PA_PORT",
+    "PA_ACCESS_TOKEN",
+    "SYNC_DELAY_MS",
+    "AUTO_WATCH_ENABLED",
+)
 
 
 def is_local_client(host):
@@ -86,7 +98,7 @@ def lan_access_url():
 class LANGuardMiddleware:
     """LAN 模式下，非本机请求必须携带访问令牌（?token= 或 X-Access-Token）。
 
-    静态资源与缩略图放行（避免 img 标签无法带 header），
+    静态资源与缩略图放行（避免静态资源请求无法带 header），
     页面 / API / 原图接口一律校验。
     """
 
@@ -118,18 +130,6 @@ class LANGuardMiddleware:
             for k, v in scope.get("headers", []):
                 if k.lower() == b"x-access-token" and v.decode("utf-8", "ignore") == ACCESS_TOKEN:
                     ok = True
-                    break
-        if not ok:
-            # 允许页面导航时经 Cookie 携带令牌（前端 pa_token.js 写入）
-            for k, v in scope.get("headers", []):
-                if k.lower() != b"cookie":
-                    continue
-                for part in v.decode("utf-8", "ignore").split(";"):
-                    kv = part.strip().split("=", 1)
-                    if len(kv) == 2 and kv[0] == "pa_lan_token" and unquote(kv[1]) == ACCESS_TOKEN:
-                        ok = True
-                        break
-                if ok:
                     break
 
         if ok:
@@ -1349,15 +1349,17 @@ def api_events():
 
 def _read_env_file():
     env_path = paths.ENV_FILE
-    if not os.path.exists(env_path):
-        return {}
     result = {}
-    with open(env_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, _, value = line.partition("=")
-                result[key.strip()] = value.strip()
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    result[key.strip()] = value.strip()
+    for key in _SETTING_ENV_KEYS:
+        if key not in result and key in os.environ:
+            result[key] = os.environ.get(key, "")
     return result
 
 

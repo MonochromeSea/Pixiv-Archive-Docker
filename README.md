@@ -1,7 +1,4 @@
-# Pixiv Archive Fin
-
-该版本缺少docker移植文件，如需docker部署请移步fin-docker分支
-Pixiv-Archive 1.2.1修改版，修复多图作品缩略图仅显示一张的问题，修复显示的这一张不一定是p1的问题。新增缩略图显示按作品与展开显示的切换按钮，新增多文件夹路径，新增自动监控源文件夹
+# Pixiv Archive
 
 一个本地运行的 Pixiv 图库归档与浏览工具：扫描你本地已下载的 Pixiv 图片，构建可搜索的作品数据库并生成缩略图，然后通过本地网页界面进行浏览、搜索、按作者/标签/收藏夹整理，并可联网同步作品的元数据（标题、标签、作者信息等）。<br>
 **注意：此工具不含任何在线浏览功能！！！**
@@ -90,6 +87,10 @@ PixivArchive.spec    PyInstaller 打包配置（onefile / 无控制台 / 自动�
 requirements.txt     运行时依赖清单
 requirements-build.txt  打包（PyInstaller）所需依赖
 .env.template        环境变量模板（复制为 .env 后填写）
+Dockerfile           Docker 镜像构建文件
+docker-compose.yml   Docker Compose 启动示例
+.dockerignore        Docker 构建忽略规则
+.gitignore           Git 提交忽略规则
 ```
 
 ---
@@ -199,6 +200,7 @@ AUTO_WATCH_DEBOUNCE_SECONDS=30
 | `AUTO_WATCH_DEBOUNCE_SECONDS` | 自动监看触发扫描前的防抖等待秒数，默认 `30` |
 | `AUTO_WATCH_POLLING` | 自动监看的轮询备用模式，`1` 开启；仅在 Docker/挂载盘不传递文件事件时使用 |
 | `PA_LOG_LEVEL` | 运行日志级别，默认 `INFO` |
+| `PA_DATA_DIR` | 数据目录覆盖；Docker 默认使用 `/app/data`，普通源码运行通常留空 |
 | `PIXIV_MODE` | `direct` 直连 / `proxy` 代理 / `auto` 自动（默认 auto） |
 | `PIXIV_PROXY` | 代理地址，如 `http://127.0.0.1:7890` |
 | `THUMBNAIL_SIZE` | 缩略图边长，默认 400 |
@@ -213,12 +215,25 @@ AUTO_WATCH_DEBOUNCE_SECONDS=30
 
 在 Docker 版本中，建议把数据目录和图片目录分开挂载。包含特殊字符、中文或括号的路径请加引号：
 
+### Docker Compose
+
+编辑 `docker-compose.yml`，把图片目录挂载路径改成你的真实路径，然后启动：
+
+```bash
+docker compose up -d --build
+```
+
+默认会把数据库、`.env`、缩略图、metadata 和日志持久化到当前目录的 `./data`。
+
+### docker run
+
 ```bash
 docker run -d \
   --name pixiv-archive \
   -p 6814:6814 \
   -v "/vol2/1000/Docker/Hermes/Pixiv-Archive/data:/app/data" \
   -v "/vol6/1000/下载/Aria2下载/Shaft/R18/AI/(114706119):/app/data/images" \
+  -e PA_DATA_DIR="/app/data" \
   -e IMAGE_SOURCE_DIR="/app/data/images" \
   -e AUTO_WATCH_ENABLED=1 \
   -e AUTO_WATCH_DEBOUNCE_SECONDS=30 \
@@ -257,6 +272,30 @@ scan directory finished
 thumbnail refresh finished
 metadata sync after scan started
 metadata sync after scan finished
+```
+
+### GitHub Release 自动发布
+
+仓库包含 `.github/workflows/release-on-tag.yml`。该 workflow 只在推送版本 tag 时触发，例如：
+
+```bash
+git tag v1.2.2
+git push origin v1.2.2
+```
+
+触发后会构建并推送 Docker 镜像：
+
+```text
+docker.io/<DOCKERHUB_USERNAME>/pixiv-archive:v1.2.2
+```
+
+同时创建 GitHub Release，并上传当前源码包 `pixiv-archive-docker-v1.2.2.tar.gz`。该流程不会构建或更新 `latest` 标签。
+
+需要在仓库 Secrets 中配置：
+
+```text
+DOCKERHUB_USERNAME
+DOCKERHUB_TOKEN
 ```
 
 ---
