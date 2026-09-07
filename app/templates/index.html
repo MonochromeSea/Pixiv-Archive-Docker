@@ -725,7 +725,6 @@ function renderGallery(data) {
         frag.appendChild(tile);
     });
     wall.appendChild(frag);
-
     renderPagination(data);
 }
 
@@ -855,7 +854,7 @@ async function confirmDelete() {
         clearSelection();
         showToast(`已删除 ${data.deleted} 个作品${data.files_deleted ? '（含源文件）' : ''}`);
         if (!($('viewerOverlay').classList.contains('hidden'))) hideViewer();
-        loadGallery(currentPage);
+        loadGallery(1);
     } catch (e) {
         showToast('删除失败：' + e.message);
     }
@@ -2239,8 +2238,9 @@ document.addEventListener('contextmenu', function (e) {
         const id = parseInt(tile.dataset.id, 10);
         const pid = tile.dataset.pid || '';
         const title = tile.dataset.title || ('Pixiv ID: ' + pid);
+        const page = parseInt(tile.dataset.page || '1', 10) || 1;
         showCtxMenu(e.clientX, e.clientY, [
-            { label: '查看', action: function () { showViewer(id); } },
+            { label: '查看', action: function () { showViewer(id, page); } },
             { label: '收藏', action: function () { openFavSelect(id); } },
             { label: '删除', danger: true, action: function () { deleteArtworkFromTile(id, title); } },
             { label: '复制 Pixiv ID', action: function () {
