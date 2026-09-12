@@ -21,6 +21,7 @@ class Job:
         self.job_id = job_id
         self.kind = kind
         self.cancel_event = threading.Event()
+        self.pause_event = threading.Event()
         self.state = {
             "job_id": job_id,
             "kind": kind,
@@ -31,6 +32,7 @@ class Job:
             "message": "准备中…",
             "result": None,
             "error": None,
+            "paused": False,
             "created_at": time.time(),
         }
 
@@ -55,6 +57,18 @@ class Job:
         if self.state["status"] == "running":
             self.set_status("cancelled")
 
+    def pause(self):
+        self.pause_event.set()
+        self.state["paused"] = True
+
+    def resume(self):
+        self.pause_event.clear()
+        self.state["paused"] = False
+
+    def wait_if_paused(self):
+        while self.pause_event.is_set() and not self.cancel_event.is_set():
+            time.sleep(0.2)
+
     def snapshot(self):
         return dict(self.state)
 
@@ -63,6 +77,11 @@ def get(job_id):
     with _lock:
         job = _jobs.get(job_id)
         return job.snapshot() if job else None
+
+
+def get_job(job_id):
+    with _lock:
+        return _jobs.get(job_id)
 
 
 def cancel(job_id):

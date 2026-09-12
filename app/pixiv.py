@@ -7,6 +7,7 @@ from pixivpy3 import AppPixivAPI
 from dotenv import load_dotenv
 from app import paths
 from app.direct_connect import enable_direct, DirectAdapter, refresh_ips
+from app.tag_rules import normalize_ai_type
 
 load_dotenv(paths.ENV_FILE)
 
@@ -300,6 +301,7 @@ class PixivClient:
         else:
             image_urls = [illust.get("meta_single_page", {}).get("original_image_url", "")]
 
+        ai_type, ai_type_source = _extract_ai_type(illust)
         return {
             "pixiv_id": illust.get("id", 0),
             "title": illust.get("title", ""),
@@ -311,11 +313,38 @@ class PixivClient:
             "page_count": illust.get("page_count", 1),
             "width": illust.get("width", 0),
             "height": illust.get("height", 0),
+            "ai_type": ai_type,
+            "ai_type_source": ai_type_source,
             "tags": tags,
             "image_urls": image_urls,
             "total_view": illust.get("total_view", 0),
             "total_bookmarks": illust.get("total_bookmarks", 0),
         }
+
+
+def _extract_ai_type(illust):
+    """Read Pixiv AI status across App API/library field spellings."""
+    def read_value(key):
+        if isinstance(illust, dict):
+            return illust.get(key)
+        getter = getattr(illust, "get", None)
+        if callable(getter):
+            try:
+                value = getter(key)
+                if value is not None:
+                    return value
+            except Exception:
+                pass
+        return getattr(illust, key, None)
+
+    for key in ("illust_ai_type", "aiType", "ai_type", "ai-type"):
+        raw = read_value(key)
+        if raw is None:
+            continue
+        value = normalize_ai_type(raw)
+        if value is not None:
+            return value, key
+    return None, ""
 
 
 _pixiv_client = None

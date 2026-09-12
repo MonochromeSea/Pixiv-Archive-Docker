@@ -54,6 +54,7 @@ class FolderWatcher:
         self._last_scan_at = None
         self._last_error = None
         self._pending = False
+        self._pending_files = set()
 
     def start(self, paths):
         if Observer is None:
@@ -115,6 +116,7 @@ class FolderWatcher:
             self._observer = None
         self._paths = []
         self._pending = False
+        self._pending_files.clear()
 
     def restart(self, paths):
         log.info("auto watch restarting")
@@ -129,19 +131,30 @@ class FolderWatcher:
                 self._timer.cancel()
             now = time.time()
             self._last_event = {
-                "path": path or "",
+                "path": path if isinstance(path, str) else "",
                 "event_type": event_type or "reschedule",
                 "time": now,
             }
+            if isinstance(path, (list, tuple, set)):
+                self._pending_files.update(p for p in path if p)
+            elif path:
+                self._pending_files.add(path)
             self._pending = True
             self._timer = threading.Timer(self._debounce_seconds, self._run_scan)
             self._timer.daemon = True
             self._timer.start()
             log.info("auto watch event queued (%s): %s; scan in %ss",
-                     event_type or "reschedule", path or "", self._debounce_seconds)
+                     event_type or "reschedule",
+                     path if isinstance(path, str) else f"{len(self._pending_files)} files",
+                     self._debounce_seconds)
             publish(
                 "watch_scan_queued",
-                {"path": path or "", "event_type": event_type or "reschedule", "debounce_seconds": self._debounce_seconds},
+                {
+                    "path": path if isinstance(path, str) else "",
+                    "event_type": event_type or "reschedule",
+                    "debounce_seconds": self._debounce_seconds,
+                    "pending_files": len(self._pending_files),
+                },
             )
 
     def _run_scan(self):
@@ -149,10 +162,15 @@ class FolderWatcher:
             self._timer = None
             self._pending = False
             self._last_scan_at = time.time()
-        log.info("auto watch debounce elapsed; requesting scan")
-        publish("watch_scan_requested", {})
+            pending_files = list(self._pending_files)
+            self._pending_files.clear()
+        log.info(
+            "auto watch debounce elapsed; requesting incremental scan; pending_files=%d",
+            len(pending_files),
+        )
+        publish("watch_scan_requested", {"pending_files": len(pending_files)})
         try:
-            self._scan_callback()
+            self._scan_callback(pending_files)
         except Exception as e:
             with self._lock:
                 self._last_error = str(e)
@@ -167,6 +185,7 @@ class FolderWatcher:
                 "mode": "polling" if isinstance(self._observer, PollingObserver) else "events",
                 "debounce_seconds": self._debounce_seconds,
                 "pending": self._pending,
+                "pending_files": len(self._pending_files),
                 "last_event": dict(self._last_event) if self._last_event else None,
                 "last_scan_at": self._last_scan_at,
                 "last_error": self._last_error,

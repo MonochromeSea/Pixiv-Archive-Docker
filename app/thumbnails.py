@@ -1,4 +1,5 @@
 import os
+import hashlib
 from PIL import Image
 from dotenv import load_dotenv
 from app import paths
@@ -13,6 +14,40 @@ def get_thumbnail_dir():
     return os.path.join(paths.DATA_DIR, THUMBNAIL_DIR)
 
 
+def _image_thumbnail_path(source_path):
+    try:
+        stat = os.stat(source_path)
+        version = f"{os.path.abspath(source_path)}:{stat.st_mtime_ns}:{stat.st_size}"
+    except OSError:
+        version = os.path.abspath(source_path)
+    key = hashlib.sha1(version.encode("utf-8", "surrogatepass")).hexdigest()[:24]
+    return os.path.join(get_thumbnail_dir(), "images", f"{key}.jpg")
+
+
+def generate_image_thumbnail(source_path, force=False):
+    """Generate an on-demand thumbnail for one registered source image."""
+    thumb_path = _image_thumbnail_path(source_path)
+    os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
+    if os.path.exists(thumb_path) and not force:
+        return thumb_path
+    temp_path = f"{thumb_path}.{os.getpid()}.tmp"
+    try:
+        with Image.open(source_path) as source:
+            source.draft("RGB", (THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+            img = source.convert("RGB")
+        img.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE), Image.LANCZOS)
+        img.save(temp_path, "JPEG", quality=82, optimize=False)
+        img.close()
+        os.replace(temp_path, thumb_path)
+        return thumb_path
+    except Exception:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+        return None
+
 def generate_thumbnail(source_path, pixiv_id, force=False):
     thumb_dir = get_thumbnail_dir()
     os.makedirs(thumb_dir, exist_ok=True)
@@ -23,10 +58,12 @@ def generate_thumbnail(source_path, pixiv_id, force=False):
         return thumb_path
 
     try:
-        img = Image.open(source_path)
-        img = img.convert("RGB")
+        with Image.open(source_path) as source:
+            source.draft("RGB", (THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+            img = source.convert("RGB")
         img.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE), Image.LANCZOS)
         img.save(thumb_path, "JPEG", quality=85)
+        img.close()
         return thumb_path
     except Exception:
         return None

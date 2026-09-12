@@ -1,7 +1,7 @@
 @echo off
 rem Pixiv Archive - one-click setup for the distributed source version.
 rem Creates a local venv and installs all dependencies (requirements.txt),
-rem then creates .env from .env.template if missing.
+rem then creates .env from .env.example if missing.
 setlocal
 set "BASE=%~dp0"
 set "PYTHON="
@@ -44,8 +44,8 @@ if errorlevel 1 (
 )
 
 if not exist "%BASE%.env" (
-    copy /y "%BASE%.env.template" "%BASE%.env" >nul
-    echo [3/3] Created .env from .env.template.
+    copy /y "%BASE%.env.example" "%BASE%.env" >nul
+    echo [3/3] Created .env from .env.example.
     echo       Edit .env to set PIXIV_REFRESH_TOKEN and IMAGE_SOURCE_DIR.
 ) else (
     echo [3/3] .env already exists, left unchanged.

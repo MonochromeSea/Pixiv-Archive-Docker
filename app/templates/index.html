@@ -16,12 +16,15 @@
                 if (localStorage.getItem('pa-sidebar') === 'collapsed') {
                     document.documentElement.classList.add('sb-collapsed');
                 }
+                if (localStorage.getItem('pa-sidebar-hover-expand') === '0') {
+                    document.documentElement.classList.add('sidebar-hover-disabled');
+                }
             } catch (e) {}
         })();
     </script>
-    <script src="/static/js/pa_token.js?v=20260907-auth1"></script>
+    <script src="/static/js/pa_token.js?v=20260908-auth2"></script>
     <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260907-ui4">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260909-settings-scroll2">
 </head>
 <body>
 
@@ -29,7 +32,7 @@
 
 <aside class="sidebar">
     <div class="brand-row">
-        <div class="brand"><a href="/" class="brand-text">Pixiv Archive</a></div>
+        <div class="brand"><span class="brand-text">Pixiv Archive</span></div>
         <button class="sb-toggle" id="btnSidebar" onclick="toggleSidebar()" title="收起侧栏"></button>
     </div>
     <div class="sidebar-body">
@@ -51,16 +54,36 @@
             </button>
         </nav>
         <div class="side-label">操作</div>
-        <button class="side-nav-item" id="btnSync" onclick="startJob('sync')" title="同步元数据">
+        <button class="side-nav-item" id="btnSync" onclick="startJob('sync')" title="增量同步元数据">
             <svg class="icon"><use href="#i-sync"/></svg><span class="nav-label">同步元数据</span>
         </button>
-        <button class="side-nav-item" id="btnScan" onclick="startJob('scan')" title="扫描图片">
+        <button class="side-nav-item" id="btnScan" onclick="startJob('scan')" title="增量扫描图片">
             <svg class="icon"><use href="#i-scan"/></svg><span class="nav-label">扫描图片</span>
         </button>
         <button class="side-nav-item" id="btnBookmarkCheck" onclick="startJob('bookmark_check')" title="检查全部收藏订阅">
             <svg class="icon"><use href="#i-bell"/></svg><span class="nav-label">订阅更新</span>
         </button>
+        <button class="side-nav-item" id="btnDuplicates" onclick="switchView('duplicates')" title="重复图片">
+            <svg class="icon"><use href="#i-copy"/></svg><span class="nav-label">去重</span>
+        </button>
+        <button class="side-nav-item" id="btnOrganize" onclick="switchView('organize')" title="整理文件">
+            <svg class="icon"><use href="#i-folder"/></svg><span class="nav-label">整理文件</span>
+        </button>
         <div class="sidebar-footer">
+            <div class="live-job hidden" id="liveJobPanel" onclick="openJobLogs()">
+                <div class="live-job-head">
+                    <span class="live-job-kind" id="liveJobKind">任务</span>
+                    <div class="live-job-actions">
+                        <button class="live-job-btn" id="liveJobPauseBtn" onclick="event.stopPropagation();toggleCurrentJobPause()" title="暂停任务" aria-label="暂停任务">
+                            <svg class="icon"><use href="#i-pause"/></svg>
+                        </button>
+                        <button class="live-job-btn danger" id="liveJobCancelBtn" onclick="event.stopPropagation();cancelCurrentJob()" title="取消任务" aria-label="取消任务">
+                            <svg class="icon"><use href="#i-x"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="live-job-bar"><div class="live-job-bar-fill" id="liveJobBarFill"></div></div>
+            </div>
             <span class="safe-badge" id="safeBadge" style="display:none;">
                 <svg class="icon"><use href="#i-lock"/></svg><span class="sb-text">安全模式</span>
             </span>
@@ -85,9 +108,13 @@
             <div class="sort-menu hidden" id="sortMenu"></div>
         </div>
         <button class="top-btn" id="btnR18" onclick="cycleR18()" title="切换 R18 显示模式">R18：全部</button>
+        <button class="top-btn" id="btnAI" onclick="cycleAI()" title="切换 AI 显示模式">AI：全部</button>
         <button class="top-btn" id="btnDeleted" onclick="toggleDeletedFilter()" title="只看已删除作品">已删除</button>
         <div class="topbar-spacer"></div>
         <button class="top-btn gallery-mode-btn is-expanded" id="btnExpandPages" onclick="toggleExpandPages()" title="展开多页作品的全部图片">展开页码</button>
+        <button class="top-btn gallery-mode-btn hidden" id="btnDuplicateLog" onclick="toggleDuplicateLogPanel()" title="打开去重日志">
+            <svg class="icon"><use href="#i-list"/></svg>去重日志
+        </button>
     </header>
 
     <main>
@@ -100,7 +127,6 @@
         <div id="wall" class="wall"></div>
         <div id="loading" class="loading" style="display:none;">加载中...</div>
         <div id="empty" class="empty-state" style="display:none;">没有找到作品。<br>请先扫描图片目录，然后同步元数据。</div>
-        <div class="pagination" id="pagination" style="display:none;"></div>
     </div>
 
     <!-- Authors view -->
@@ -147,6 +173,172 @@
         </div>
         <div class="bm-hint">订阅某位 Pixiv 用户的<strong>公开收藏</strong>列表，每次检查自动下载其中新增的收藏作品（按收藏记录 ID 增量，只下新、不重复），并自动完成入库与缩略图。</div>
         <div id="bookmarkSubGrid" class="favorites-grid subscriptions-grid"></div>
+    </div>
+
+    <div class="view" id="viewDuplicates">
+        <div class="view-header">
+            <div class="duplicate-tabs">
+                <button type="button" class="duplicate-tab active" id="duplicateTab" onclick="loadDuplicatesView('duplicates')">重复图片</button>
+                <button type="button" class="duplicate-tab" id="suspectTab" onclick="loadDuplicatesView('suspects')">怀疑图片</button>
+            </div>
+            <div class="sub-header-actions">
+                <button class="top-btn" onclick="invertDuplicateSelection()" title="反选当前列表中的图片">
+                    <svg class="icon"><use href="#i-check"/></svg>反选
+                </button>
+                <button class="top-btn" id="duplicateAutoSelectBtn" onclick="autoSelectDuplicateKeepOldest()" title="自动勾选较新的重复图片，保留最早文件">
+                    <svg class="icon"><use href="#i-check"/></svg>自动勾选较新文件
+                </button>
+                <button class="top-btn" onclick="loadDuplicatesView()">
+                    <svg class="icon"><use href="#i-sync"/></svg>刷新
+                </button>
+                <button class="top-btn danger" onclick="deleteSelectedDuplicates()">
+                    <svg class="icon"><use href="#i-trash"/></svg>删除勾选
+                </button>
+            </div>
+        </div>
+        <div class="duplicate-layout">
+            <div class="duplicate-main">
+                <div id="duplicateList" class="duplicate-list"></div>
+            </div>
+            <aside class="duplicate-log-panel hidden" id="duplicateLogPanel">
+                <div class="duplicate-log-head">
+                    <strong>去重日志</strong>
+                    <div class="log-head-actions">
+                        <button class="log-clear-btn" onclick="clearLog('duplicate')">清空日志</button>
+                        <button class="top-btn" onclick="toggleDuplicateLogPanel(false)" title="收起去重日志"><svg class="icon"><use href="#i-panel"/></svg></button>
+                    </div>
+                </div>
+                <div class="duplicate-log-list" id="duplicateLogList"></div>
+            </aside>
+        </div>
+    </div>
+
+    <div class="view" id="viewOrganize">
+        <div class="view-header">
+            <span>整理文件</span>
+        </div>
+        <div class="organize-panel">
+            <div class="settings-field">
+                <label>源文件夹</label>
+                <div class="source-dir-list" id="organizeSourceDirList"></div>
+                <span class="field-hint">默认读取设置页的本地图片目录，可在这里单独增删或修改，不会改变扫描目录设置。</span>
+            </div>
+            <div class="settings-field">
+                <label for="organizeOutputDir">输出文件夹</label>
+                <input type="text" id="organizeOutputDir" placeholder="例如 /app/data/organized">
+            </div>
+            <div class="settings-field">
+                <label for="organizePathRule">整理路径</label>
+                <div class="settings-select-wrap" id="organizePathRuleWrap">
+                    <input type="hidden" id="organizePathRule" value="shaft_classic">
+                    <button type="button" class="settings-select settings-select-button" id="organizePathRuleButton" onclick="toggleOrganizePathRuleMenu()" aria-haspopup="listbox" aria-expanded="false">
+                        <span id="organizePathRuleLabel">Shaft 经典（兼容 4.5.8 之前）</span>
+                        <span class="settings-select-arrow" aria-hidden="true"></span>
+                    </button>
+                    <div class="settings-select-menu hidden" id="organizePathRuleMenu" role="listbox">
+                        <button type="button" role="option" data-value="shaft_classic" onclick="setOrganizePathRule('shaft_classic', 'Shaft 经典（兼容 4.5.8 之前）')">Shaft 经典（兼容 4.5.8 之前）</button>
+                        <button type="button" role="option" data-value="shaft_modern" onclick="setOrganizePathRule('shaft_modern', 'Shaft 现代（R18/AI 嵌套）')">Shaft 现代（R18/AI 嵌套）</button>
+                        <button type="button" role="option" data-value="shaft_flat" onclick="setOrganizePathRule('shaft_flat', '扁平')">扁平（不按作者）</button>
+                        <button type="button" role="option" data-value="shaft_date" onclick="setOrganizePathRule('shaft_date', '按日期分组')">按日期分组</button>
+                        <button type="button" role="option" data-value="shaft_artist" onclick="setOrganizePathRule('shaft_artist', '按作者分组')">按作者分组</button>
+                        <button type="button" role="option" data-value="shaft_artist_date" onclick="setOrganizePathRule('shaft_artist_date', '作者 + 年月分组')">按作者 + 年月分组</button>
+                        <button type="button" role="option" data-value="shaft_artist_work" onclick="setOrganizePathRule('shaft_artist_work', '作者 + 作品文件夹')">按作者分组 + 多P建子文件夹</button>
+                        <button type="button" role="option" data-value="shaft_id" onclick="setOrganizePathRule('shaft_id', '极简（只用 ID）')">极简（只用 ID）</button>
+                        <button type="button" role="option" data-value="bucket" onclick="setOrganizePathRule('bucket', 'R18 / AI 强制分桶')">R18 / AI 强制分桶</button>
+                        <button type="button" role="option" data-value="shaft_detail" onclick="setOrganizePathRule('shaft_detail', '详细（标题+ID+P+画师+尺寸+时间）')">详细（标题+ID+P+画师+尺寸+时间）</button>
+                        <button type="button" role="option" data-value="custom" onclick="setOrganizePathRule('custom', '自定义模板')">自定义模板</button>
+                    </div>
+                </div>
+                <span class="field-hint" id="organizePathRuleHint">示例：输出目录/R18/AI/画师名 (作者ID)/</span>
+                <div class="organize-template-editor hidden" id="organizePathTemplateField">
+                    <textarea id="organizePathTemplate" rows="3" oninput="updateOrganizeUnknownAsHumanVisibility()" placeholder="例如 [?R18:R18/][?!R18:SFW/][?AI:AI/][?!AI:Human/]{author}_{author_id}"></textarea>
+                    <div class="template-variable-guide">
+                        <strong>变量说明</strong>
+                        <div><code>{id}</code> 作品 Pixiv ID，例如 <code>123456789</code></div>
+                        <div><code>{title}</code> 作品标题</div>
+                        <div><code>{author}</code> 作者名称</div>
+                        <div><code>{author_id}</code> 作者 Pixiv ID</div>
+                        <div><code>{created:yyyy-MM-dd}</code> 创作日期，可用 <code>yyyy</code>、<code>MM</code>、<code>dd</code>、<code>HH</code>、<code>mm</code>、<code>ss</code></div>
+                        <div><code>[?R18:内容]</code> 仅 R18 作品显示；<code>[?!R18:内容]</code> 仅 SFW 作品显示</div>
+                        <div><code>[?AI:内容]</code> 仅 AI 作品显示；<code>[?!AI:内容]</code> 仅 Human 作品显示</div>
+                    </div>
+                </div>
+                <span class="field-hint template-variable-hint">这里只填写目录模板，不填写文件名；可用 {title} {id} {author} {author_id} {created:yyyy-MM} 和 R18/AI 条件块</span>
+            </div>
+            <div class="settings-field">
+                <label class="settings-check">
+                    <input type="checkbox" id="organizeRenameEnabled" onchange="updateOrganizeRenameVisibility()">
+                    <span>整理时自动重命名</span>
+                </label>
+                <div class="organize-dependent hidden" id="organizeRenameSettings">
+                    <div class="settings-select-wrap" id="organizeRenameRuleWrap">
+                        <input type="hidden" id="organizeRenameRule" value="keep">
+                        <button type="button" class="settings-select settings-select-button" id="organizeRenameRuleButton" onclick="toggleOrganizeRenameRuleMenu()" aria-haspopup="listbox" aria-expanded="false">
+                            <span id="organizeRenameRuleLabel">保持原文件名</span>
+                            <span class="settings-select-arrow" aria-hidden="true"></span>
+                        </button>
+                        <div class="settings-select-menu hidden" id="organizeRenameRuleMenu" role="listbox">
+                            <button type="button" role="option" data-value="keep" onclick="setOrganizeRenameRule('keep', '保持原文件名')">保持原文件名</button>
+                            <button type="button" role="option" data-value="shaft_modern" onclick="setOrganizeRenameRule('shaft_modern', '标题 ID_页码')">标题 ID_页码</button>
+                            <button type="button" role="option" data-value="title_author_page" onclick="setOrganizeRenameRule('title_author_page', '标题 作者_页码')">标题 作者_页码</button>
+                            <button type="button" role="option" data-value="shaft_id" onclick="setOrganizeRenameRule('shaft_id', '仅 ID_页码')">仅 ID_页码</button>
+                            <button type="button" role="option" data-value="shaft_detail" onclick="setOrganizeRenameRule('shaft_detail', '详细信息')">详细信息</button>
+                            <button type="button" role="option" data-value="custom" onclick="setOrganizeRenameRule('custom', '自定义模板')">自定义模板</button>
+                        </div>
+                    </div>
+                    <span class="field-hint" id="organizeRenameRuleHint">示例：作品标题 123456789_p1.jpg</span>
+                    <div class="organize-template-editor hidden" id="organizeRenameTemplateField">
+                        <textarea id="organizeRenameTemplate" rows="2" placeholder="例如 {author}_{title}_{id}_p{page}.{ext}"></textarea>
+                        <div class="template-variable-guide">
+                            <strong>变量说明</strong>
+                            <div><code>{filename}</code> 原文件名</div>
+                            <div><code>{id}</code> 作品 Pixiv ID，例如 <code>123456789</code></div>
+                            <div><code>{title}</code> 作品标题</div>
+                            <div><code>{page}</code> 当前图片页码，从 1 开始；<code>{pages}</code> 作品总页数</div>
+                            <div><code>{ext}</code> 文件扩展名，例如 <code>jpg</code>、<code>png</code></div>
+                            <div><code>{author}</code> 作者名称；<code>{author_id}</code> 作者 Pixiv ID</div>
+                            <div><code>{w}</code> 图片宽度；<code>{h}</code> 图片高度</div>
+                            <div><code>{created:yyyy-MM-dd}</code> 创作日期，可用 <code>yyyy</code>、<code>MM</code>、<code>dd</code>、<code>HH</code>、<code>mm</code>、<code>ss</code></div>
+                            <div><code>[?R18:内容]</code>、<code>[?!R18:内容]</code>、<code>[?AI:内容]</code>、<code>[?!AI:内容]</code> 可按状态条件显示</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-field">
+                <label for="organizeMode">整理方式</label>
+                <div class="settings-select-wrap" id="organizeModeWrap">
+                    <input type="hidden" id="organizeMode" value="copy">
+                    <button type="button" class="settings-select settings-select-button" id="organizeModeButton" onclick="toggleOrganizeModeMenu()" aria-haspopup="listbox" aria-expanded="false">
+                        <span id="organizeModeLabel">复制</span>
+                        <span class="settings-select-arrow" aria-hidden="true"></span>
+                    </button>
+                    <div class="settings-select-menu hidden" id="organizeModeMenu" role="listbox">
+                        <button type="button" role="option" data-value="copy" onclick="setOrganizeMode('copy', '复制')">复制</button>
+                        <button type="button" role="option" data-value="move" onclick="setOrganizeMode('move', '移动')">移动</button>
+                        <button type="button" role="option" data-value="symlink" onclick="setOrganizeMode('symlink', '软链接')">软链接</button>
+                        <button type="button" role="option" data-value="hardlink" onclick="setOrganizeMode('hardlink', '硬链接')">硬链接</button>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-field hidden" id="organizeUnknownAsHumanField">
+                <label class="settings-check">
+                    <input type="checkbox" id="organizeUnknownAsHuman">
+                    <span>未知 AI 状态归入 Human</span>
+                </label>
+                <span class="field-hint">仅在整理路径包含 AI/Human 分桶时生效；关闭后未知状态不会归入 Human。</span>
+            </div>
+            <div class="settings-actions organize-actions">
+                <button class="btn-secondary" onclick="saveOrganizeSettings()">保存设置</button>
+                <button class="btn-primary" onclick="startOrganizeJob()">开始整理</button>
+                <button class="btn-secondary" id="undoOrganizeBtn" onclick="undoOrganizeJob()">撤销本次整理</button>
+                <span class="organize-undo-status" id="organizeUndoStatus" style="display:none;"></span>
+            </div>
+            <div class="settings-msg" id="organizeMsg" style="display:none;"></div>
+            <div class="settings-field organize-log-block">
+                <div class="log-title-row"><label>整理文件日志</label><button type="button" class="log-clear-btn" onclick="clearLog('organize')">清空日志</button></div>
+                <div class="organize-log-list" id="organizeLogList"></div>
+            </div>
+        </div>
     </div>
     </main>
 </div>
@@ -210,48 +402,60 @@
 <!-- Viewer overlay (left info / right image) -->
 <div class="viewer-overlay hidden" id="viewerOverlay">
     <div class="viewer-left">
-        <button class="viewer-close" onclick="hideViewer()">
-            <svg class="icon"><use href="#i-arrow-left"/></svg><span>返回</span>
-        </button>
-        <div class="v-title" id="vTitle"></div>
-        <div class="v-author" id="vAuthor"></div>
-        <div class="v-tags" id="vTags"></div>
-        <div class="v-fav" id="vFav">
-            <div class="v-fav-label">所在收藏夹：</div>
-            <div class="v-fav-tags" id="vFavTags"></div>
+        <div class="viewer-top-row">
+            <button class="viewer-close" onclick="hideViewer()" title="返回">
+                <svg class="icon"><use href="#i-arrow-left"/></svg><span>返回</span>
+            </button>
+            <button class="sb-toggle viewer-sidebar-toggle" id="btnViewerSidebar" onclick="toggleViewerSidebar()" title="收起详情栏"></button>
         </div>
-        <div class="v-desc" id="vDesc" style="display:none;"></div>
-        <div class="v-meta" id="vMeta"></div>
-        <div class="v-actions">
-            <button class="v-fav-btn" id="vFavBtn" onclick="openFavSelect(window._viewerArtworkId)">
-                <svg class="icon"><use href="#i-star-o"/></svg><span>收藏</span>
+        <div class="viewer-left-scroll">
+            <div class="v-title" id="vTitle"></div>
+            <div class="v-author" id="vAuthor"></div>
+            <div class="v-tags" id="vTags"></div>
+            <div class="v-fav" id="vFav">
+                <div class="v-fav-label">所在收藏夹：</div>
+                <div class="v-fav-tags" id="vFavTags"></div>
+            </div>
+            <div class="v-desc" id="vDesc" style="display:none;"></div>
+            <div class="v-meta" id="vMeta"></div>
+        </div>
+        <div class="viewer-left-bottom">
+            <button class="v-original-btn" id="vOriginalBtn" type="button" style="display:none;"
+                    onclick="showViewerOriginal()" title="显示当前图片原图">
+                <svg class="icon"><use href="#i-image"/></svg><span>显示原图</span>
             </button>
-            <button class="v-folder-btn" onclick="openInFolder()" title="在文件夹中打开">
-                <svg class="icon"><use href="#i-folder"/></svg>
-            </button>
-            <button class="v-delete" onclick="deleteCurrent()">
-                <svg class="icon"><use href="#i-trash"/></svg><span>删除作品</span>
-            </button>
+            <div class="v-nav v-art-switch" id="vNav" style="display:none;">
+                <button id="vPrev" class="v-page-btn" onclick="viewerArtworkNav(-1)" title="上一个作品">
+                    <svg class="icon"><use href="#i-chevron-left"/></svg>
+                </button>
+                <span class="v-page" id="vPageIndicator"></span>
+                <button id="vNext" class="v-page-btn" onclick="viewerArtworkNav(1)" title="下一个作品">
+                    <svg class="icon"><use href="#i-chevron-right"/></svg>
+                </button>
+            </div>
+            <div class="v-actions">
+                <button class="v-fav-btn" id="vFavBtn" onclick="openFavSelect(window._viewerArtworkId)">
+                    <svg class="icon"><use href="#i-star-o"/></svg><span>收藏</span>
+                </button>
+                <button class="v-folder-btn" id="vFolderBtn" onclick="openInFolder()" title="在文件夹中打开">
+                    <svg class="icon"><use href="#i-folder"/></svg>
+                </button>
+                <button class="v-delete" onclick="deleteCurrent()">
+                    <svg class="icon"><use href="#i-trash"/></svg><span>删除作品</span>
+                </button>
+            </div>
         </div>
     </div>
     <div class="viewer-right">
-        <button class="v-art-btn v-art-prev" id="vPrevArt" onclick="viewerArtworkNav(-1)" title="上一个作品">
+        <button class="v-page-zone v-page-zone-prev" id="vPrevArt" onclick="viewerNav(-1)" aria-label="上一页">
             <svg class="icon"><use href="#i-chevron-left"/></svg>
         </button>
         <div class="v-loading" id="vLoading" style="display:none;">加载中...</div>
         <img id="vMainImage" alt="" style="display:none;">
-        <button class="v-art-btn v-art-next" id="vNextArt" onclick="viewerArtworkNav(1)" title="下一个作品">
+        <div class="viewer-page-bubble" id="viewerPageBubble" aria-live="polite"></div>
+        <button class="v-page-zone v-page-zone-next" id="vNextArt" onclick="viewerNav(1)" aria-label="下一页">
             <svg class="icon"><use href="#i-chevron-right"/></svg>
         </button>
-        <div class="v-nav" id="vNav" style="display:none;">
-            <button id="vPrev" class="v-page-btn" onclick="viewerNav(-1)" title="上一页">
-                <svg class="icon"><use href="#i-chevron-left"/></svg>
-            </button>
-            <span class="v-page" id="vPageIndicator"></span>
-            <button id="vNext" class="v-page-btn" onclick="viewerNav(1)" title="下一页">
-                <svg class="icon"><use href="#i-chevron-right"/></svg>
-            </button>
-        </div>
     </div>
 </div>
 
@@ -323,6 +527,7 @@
         <div class="settings-tabs">
             <button type="button" class="settings-tab active" id="tabBasic" onclick="switchSettingsTab('basic')">基础设置</button>
             <button type="button" class="settings-tab" id="tabNetwork" onclick="switchSettingsTab('network')">网络设置</button>
+            <button type="button" class="settings-tab" id="tabLogs" onclick="switchSettingsTab('logs')">操作日志</button>
             <a class="settings-github" href="https://github.com/Tumber-ZM/Pixiv-Archive" target="_blank" rel="noopener noreferrer" title="GitHub 仓库">
                 <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
                     <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
@@ -355,6 +560,14 @@
                 <span class="field-hint" id="autoWatchHint"></span>
             </div>
             <div class="settings-field">
+                <label for="settingSseReleaseDelay">关闭显示窗口后释放前端资源</label>
+                <div class="settings-inline-row">
+                    <input type="number" id="settingSseReleaseDelay" min="10" max="86400" step="1" placeholder="60">
+                    <span>秒</span>
+                </div>
+                <span class="field-hint">没有浏览器页面连接到程序并持续达到此时间后，自动释放画廊图片缓存、预加载图片和滚动观察器，减少无人查看时的内存占用；默认 60 秒。</span>
+            </div>
+            <div class="settings-field">
                 <label for="settingPort">服务器端口</label>
                 <input type="text" id="settingPort" placeholder="6814">
                 <span class="field-hint" id="portHint"></span>
@@ -370,6 +583,58 @@
                     <span>安全模式（模糊所有图片）</span>
                 </label>
                 <span class="field-hint">开启后所有图片将模糊显示，适合演示 / 屏幕共享时保护内容。</span>
+            </div>
+            <div class="settings-field">
+                <label class="settings-check">
+                    <input type="checkbox" id="settingShowFolderBtn">
+                    <span>显示“在文件夹中打开”入口</span>
+                </label>
+                <span class="field-hint">控制图片查看页的文件夹按钮，以及右键菜单里的“在文件夹中打开”。</span>
+            </div>
+            <div class="settings-field">
+                <label class="settings-check">
+                    <input type="checkbox" id="settingViewerAutoOriginal">
+                    <span>详情页自动开启原图显示</span>
+                </label>
+                <span class="field-hint">关闭后查看器会优先显示已有缩略图，进入具体页码时再按需加载原图。</span>
+            </div>
+            <div class="settings-field">
+                <label class="settings-check">
+                    <input type="checkbox" id="settingSidebarHoverExpand">
+                    <span>收起边栏时悬停展开</span>
+                </label>
+                <span class="field-hint">开启后主侧栏和详情页侧栏在小边栏状态下，鼠标移入会临时展开，移出后自动收回。</span>
+            </div>
+            <div class="settings-field">
+                <label class="settings-check">
+                    <input type="checkbox" id="settingBookmarkAutoCheck">
+                    <span>定时执行收藏订阅更新</span>
+                </label>
+                <div class="settings-inline-row">
+                    <select id="settingBookmarkAutoWeekday" class="settings-compact-select">
+                        <option value="0">每周一</option>
+                        <option value="1">每周二</option>
+                        <option value="2">每周三</option>
+                        <option value="3">每周四</option>
+                        <option value="4">每周五</option>
+                        <option value="5">每周六</option>
+                        <option value="6">每周日</option>
+                    </select>
+                    <input type="text" id="settingBookmarkAutoTime" class="settings-compact-time" placeholder="03:30" value="03:30" inputmode="numeric" autocomplete="off">
+                    <span class="field-inline-unit">北京时间</span>
+                </div>
+                <span class="field-hint" id="bookmarkAutoHint"></span>
+            </div>
+            <div class="settings-field">
+                <label class="settings-check">
+                    <input type="checkbox" id="settingAutoFailPause">
+                    <span>连续失败自动暂停扫描 / 同步</span>
+                </label>
+                <div class="settings-inline-row">
+                    <input type="number" id="settingAutoFailPauseThreshold" min="2" step="1" placeholder="10">
+                    <span class="field-inline-unit">次</span>
+                </div>
+                <span class="field-hint">达到指定连续失败次数后，当前任务会自动切换为暂停状态。</span>
             </div>
             <div class="settings-field" id="openExternalField" style="display:none;">
                 <button class="btn-folder-ghost" onclick="openExternalBrowser()">
@@ -399,12 +664,12 @@
                 <span class="field-hint" id="syncDelayHint"></span>
             </div>
             <div class="settings-field">
-                <label class="fav-check">
+                <label class="settings-check">
                     <input type="checkbox" id="settingMirrorToggle" onchange="onMirrorToggleChange()">
-                    用第三方图站接管图片下载
+                    <span>使用第三方图站接管图片下载</span>
                 </label>
                 <div id="mirrorDomainField" style="display:none;">
-                    <label for="settingImageMirror" style="display:block;margin:6px 0 4px;">镜像域名</label>
+                    <label for="settingImageMirror">镜像域名</label>
                     <input type="text" id="settingImageMirror" placeholder="例如 i.pixiv.re（可带路径前缀）" autocomplete="off">
                 </div>
                 <span class="field-hint" id="mirrorHint"></span>
@@ -417,16 +682,30 @@
                 <span class="field-hint" id="refreshIpHint"></span>
             </div>
         </div>
-        <div class="settings-actions">
+        <div class="settings-field settings-tool-row" id="settingsTools">
+            <label>任务工具</label>
+            <div class="settings-tool-actions">
+                <button type="button" class="btn-folder-ghost" id="btnFullScan" onclick="startJob('scan', true)">
+                    <svg class="icon"><use href="#i-scan"/></svg>全量扫描
+                </button>
+                <button type="button" class="btn-folder-ghost" id="btnRebuildMetadata" onclick="startJob('sync', true)">
+                    <svg class="icon"><use href="#i-sync"/></svg>重建元数据
+                </button>
+            </div>
+        </div>
+        <div class="settings-section settings-log-section" id="secLogs" style="display:none;">
+            <div class="settings-field settings-log-bubble">
+                <div class="log-title-row"><label>最近操作日志</label><button type="button" class="log-clear-btn" onclick="clearLog('operation')">清空日志</button></div>
+                <div class="settings-log-list" id="operationLogList"></div>
+            </div>
+        </div>
+        <div id="settingsMsg" class="settings-msg" style="display:none;"></div>
+        <div class="settings-actions" id="settingsActions">
             <button onclick="saveSettings()" class="btn-primary">保存</button>
             <button onclick="closeSettings()" class="btn-secondary">取消</button>
         </div>
-        <div id="settingsMsg" class="settings-msg" style="display:none;"></div>
     </div>
 </div>
-
-<!-- Toast -->
-<div class="toast job-window" id="toast" role="status" aria-live="polite"></div>
 
 <!-- 自定义右键菜单 -->
 <div class="ctx-menu hidden" id="ctxMenu"></div>
@@ -455,8 +734,39 @@ let _favSelectCurrentIds = new Set();
 let _favCache = [];
 let _selectedIds = new Set();
 let expandPages = true;
+let _showFolderBtn = true;
+let _viewerAutoOriginal = true;
+let _sidebarHoverExpand = true;
+let _viewerDetailCache = new Map();
+let _viewerDetailPending = new Map();
+let _viewerPreloadUrls = new Set();
+let _viewerPageBubbleTimer = 0;
+let _galleryLayoutRaf = 0;
+let _galleryLoading = false;
+let _galleryHasMore = true;
+let _galleryLazyObserver = null;
+let _galleryResizeObserver = null;
+let _gallerySidebarTimer = 0;
+const GALLERY_PRELOAD_CACHE_LIMIT = 40;
+const _galleryImageCache = new Map();
+const GALLERY_PAGE_SIZE = 80;
+const OP_LOG_KEY = 'pa-operation-logs';
+const DUP_LOG_KEY = 'pa-duplicate-logs';
+const ORG_LOG_KEY = 'pa-organize-logs';
+const OP_LOG_LIMIT = 10;
+let _operationLogs = [];
+let _duplicateLogs = [];
+let _organizeLogs = [];
+let _lastJobLogMessage = '';
+let _duplicateLogVisible = false;
 try {
     expandPages = localStorage.getItem('pa-expand-pages') !== '0';
+    const folderBtn = localStorage.getItem('pa-show-folder-btn');
+    if (folderBtn !== null) _showFolderBtn = folderBtn !== '0';
+    const viewerOriginal = localStorage.getItem('pa-viewer-auto-original');
+    if (viewerOriginal !== null) _viewerAutoOriginal = viewerOriginal !== '0';
+    const hoverExpand = localStorage.getItem('pa-sidebar-hover-expand');
+    if (hoverExpand !== null) _sidebarHoverExpand = hoverExpand !== '0';
 } catch (e) {}
 
 // ===== Elements =====
@@ -472,22 +782,93 @@ function updateSidebarToggle() {
     }
 }
 
+function updateViewerSidebarToggle() {
+    const overlay = $('viewerOverlay');
+    const collapsed = overlay && overlay.classList.contains('viewer-info-collapsed');
+    const btn = $('btnViewerSidebar');
+    if (btn) {
+        btn.title = collapsed ? '展开详情栏' : '收起详情栏';
+        btn.innerHTML = '<svg class="icon" style="transform:rotate(' + (collapsed ? 180 : 0) + 'deg)"><use href="#i-panel"/></svg>';
+    }
+}
+
+function applyViewerSidebarState(collapsed) {
+    const overlay = $('viewerOverlay');
+    if (!overlay) return;
+    overlay.classList.toggle('viewer-info-collapsed', !!collapsed);
+    updateViewerSidebarToggle();
+}
+
+function toggleViewerSidebar() {
+    const overlay = $('viewerOverlay');
+    if (!overlay) return;
+    const collapsed = !overlay.classList.contains('viewer-info-collapsed');
+    applyViewerSidebarState(collapsed);
+    try { localStorage.setItem('pa-viewer-sidebar', collapsed ? 'collapsed' : 'expanded'); } catch (e) {}
+}
+
+function applyFolderButtonVisibility(show) {
+    const visible = typeof show === 'boolean' ? show : _showFolderBtn;
+    _showFolderBtn = visible;
+    const btn = $('vFolderBtn');
+    if (btn) btn.style.display = visible ? 'inline-flex' : 'none';
+    const actions = document.querySelector('.v-actions');
+    if (actions) actions.classList.toggle('no-folder', !visible);
+}
+
+function applyViewerAutoOriginal(enabled) {
+    _viewerAutoOriginal = enabled !== false;
+    updateViewerOriginalButton();
+    try { localStorage.setItem('pa-viewer-auto-original', _viewerAutoOriginal ? '1' : '0'); } catch (e) {}
+}
+
+function applySidebarHoverExpand(enabled) {
+    _sidebarHoverExpand = enabled !== false;
+    document.documentElement.classList.toggle('sidebar-hover-disabled', !_sidebarHoverExpand);
+    try { localStorage.setItem('pa-sidebar-hover-expand', _sidebarHoverExpand ? '1' : '0'); } catch (e) {}
+}
+
+async function syncUiSettings() {
+    try {
+        const resp = await fetch('/api/settings');
+        const data = await resp.json();
+        applyFolderButtonVisibility(data.show_folder_button !== false);
+        applyViewerAutoOriginal(data.viewer_auto_original !== false);
+        applySidebarHoverExpand(data.sidebar_hover_expand !== false);
+        _sseReleaseDelaySeconds = Number(data.sse_release_delay_seconds) || 60;
+        try { localStorage.setItem('pa-show-folder-btn', data.show_folder_button !== false ? '1' : '0'); } catch (e) {}
+    } catch (e) {}
+}
+
 function toggleSidebar() {
     const collapsed = document.documentElement.classList.toggle('sb-collapsed');
     try { localStorage.setItem('pa-sidebar', collapsed ? 'collapsed' : 'expanded'); } catch (e) {}
     updateSidebarToggle();
+    scheduleGalleryGroupLayout();
+    clearTimeout(_gallerySidebarTimer);
+    _gallerySidebarTimer = setTimeout(scheduleGalleryGroupLayout, 260);
+    setTimeout(scheduleGalleryGroupLayout, 20);
+    setTimeout(scheduleGalleryGroupLayout, 520);
 }
 
 // ===== View switching =====
 function switchView(view) {
     const viewChanged = currentView !== view;
     currentView = view;
-    ['viewGallery', 'viewAuthors', 'viewTags', 'viewFavorites', 'viewBookmarkSubs'].forEach(v => $(v).classList.toggle('active', v === 'view' + view[0].toUpperCase() + view.slice(1)));
+    ['viewGallery', 'viewAuthors', 'viewTags', 'viewFavorites', 'viewBookmarkSubs', 'viewDuplicates', 'viewOrganize'].forEach(v => $(v).classList.toggle('active', v === 'view' + view[0].toUpperCase() + view.slice(1)));
     $('btnGallery').classList.toggle('active', view === 'gallery');
     $('btnBookmarkSubs').classList.toggle('active', view === 'bookmarkSubs');
     $('btnAuthors').classList.toggle('active', view === 'authors');
     $('btnTags').classList.toggle('active', view === 'tags');
     $('btnFavorites').classList.toggle('active', view === 'favorites');
+    $('btnDuplicates').classList.toggle('active', view === 'duplicates');
+    $('btnOrganize').classList.toggle('active', view === 'organize');
+    const galleryModeButton = $('btnExpandPages');
+    if (galleryModeButton) galleryModeButton.classList.toggle('hidden', view !== 'gallery');
+    const duplicateLogButton = $('btnDuplicateLog');
+    if (duplicateLogButton) duplicateLogButton.classList.toggle('hidden', view !== 'duplicates');
+    const aiFilterButton = $('btnAI');
+    if (aiFilterButton) aiFilterButton.classList.toggle('hidden', view !== 'gallery');
     if (viewChanged) window.scrollTo({ top: 0 });
     if (view === 'gallery' && $('wall').children.length === 0 && currentTotal === 0) {
         loadGallery();
@@ -499,6 +880,10 @@ function switchView(view) {
         loadFavoritesView();
     } else if (view === 'bookmarkSubs' && $('bookmarkSubGrid').children.length === 0) {
         loadBookmarkSubsView();
+    } else if (view === 'duplicates' && $('duplicateList').children.length === 0) {
+        loadDuplicatesView('duplicates');
+    } else if (view === 'organize') {
+        loadOrganizeDefaults();
     }
 }
 
@@ -597,6 +982,7 @@ function clearFilter() {
 function updateExpandPagesButton() {
     const btn = $('btnExpandPages');
     if (!btn) return;
+    btn.classList.toggle('hidden', currentView !== 'gallery');
     btn.classList.toggle('is-expanded', expandPages);
     btn.classList.toggle('is-merged', !expandPages);
     btn.textContent = expandPages ? '展开页码' : '合并作品';
@@ -611,10 +997,54 @@ function toggleExpandPages() {
     loadGallery(1);
 }
 
-async function loadGallery(page = 1) {
+function clearGalleryImageCache() {
+    _galleryImageCache.clear();
+}
+
+function warmGalleryImage(url) {
+    if (!url || _galleryImageCache.has(url)) return;
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = url;
+    _galleryImageCache.set(url, image);
+    while (_galleryImageCache.size > GALLERY_PRELOAD_CACHE_LIMIT) {
+        const oldest = _galleryImageCache.keys().next().value;
+        _galleryImageCache.delete(oldest);
+    }
+}
+
+function warmGalleryImagesForNextMode(artworks, append = false) {
+    if (append || !Array.isArray(artworks)) return;
+    clearGalleryImageCache();
+    let warmed = 0;
+
+    for (const artwork of artworks) {
+        const images = Array.isArray(artwork.images) ? artwork.images.slice() : [];
+        images.sort((left, right) => Number(left.page || 0) - Number(right.page || 0));
+        const nextModeSources = expandPages
+            ? [artwork.thumb_path ? `/thumbnails/${artwork.pixiv_id}.jpg` : '']
+            : images.map(image => image && image.id ? paImg('/image-thumb/' + image.id) : '');
+
+        for (const source of nextModeSources) {
+            if (!source) continue;
+            warmGalleryImage(source);
+            warmed += 1;
+            if (warmed >= GALLERY_PRELOAD_CACHE_LIMIT) return;
+        }
+    }
+}
+
+async function loadGallery(page = 1, options = {}) {
+    const append = !!options.append;
+    const silent = !!options.silent;
+    if (_galleryLoading) return false;
     if (currentView !== 'gallery') switchView('gallery');
+    _galleryLoading = true;
     currentPage = page;
-    $('loading').style.display = 'block';
+    if (!silent) {
+        $('loading').style.display = 'block';
+        $('loading').textContent = append ? '继续加载...' : '加载中...';
+    }
     $('empty').style.display = 'none';
 
     const sort = _sortKey;
@@ -639,98 +1069,340 @@ async function loadGallery(page = 1) {
     try {
         const resp = await fetch(url);
         const data = await resp.json();
-        renderGallery(data);
+        renderGallery(data, append);
+        return true;
     } catch (e) {
         $('loading').style.display = 'none';
         $('empty').style.display = 'block';
         $('empty').textContent = '加载失败：' + e.message;
+        return false;
+    } finally {
+        _galleryLoading = false;
+        if (currentView === 'gallery') setTimeout(maybeLoadMoreGallery, 0);
     }
 }
 
 function buildGalleryUrl(page, ctx) {
     let url;
     if (ctx.type === 'search') {
-        url = `/api/search?q=${encodeURIComponent(ctx.q)}&page=${page}&per_page=100&sort=${ctx.sort}&order=${ctx.order}`;
+        url = `/api/search?q=${encodeURIComponent(ctx.q)}&page=${page}&per_page=${GALLERY_PAGE_SIZE}&sort=${ctx.sort}&order=${ctx.order}&group_pages=1`;
         if (ctx.tag) url += `&tag=${encodeURIComponent(ctx.tag)}`;
         if (ctx.author) url += `&author=${encodeURIComponent(ctx.author)}`;
         if (ctx.favoriteId) url += `&favorite_id=${ctx.favoriteId}`;
     } else {
-        url = `/api/artworks?page=${page}&sort=${ctx.sort}&order=${ctx.order}&per_page=100`;
+        url = `/api/artworks?page=${page}&sort=${ctx.sort}&order=${ctx.order}&per_page=${GALLERY_PAGE_SIZE}&group_pages=1`;
         if (ctx.type === 'tag') url += `&tag=${encodeURIComponent(ctx.tag)}`;
         else if (ctx.type === 'author') url += `&author=${encodeURIComponent(ctx.author)}`;
         else if (ctx.type === 'favorite') url += `&favorite_id=${ctx.favoriteId}`;
     }
     const r = r18Param();
     if (r) url += '&r18=' + r;
+    const ai = aiParam();
+    if (ai) url += '&ai=' + ai;
     if (deletedFilter) url += '&status=deleted';
     if (expandPages) url += '&expand_pages=1';
     return url;
 }
 
-function renderGallery(data) {
+function renderGallery(data, append = false) {
     $('loading').style.display = 'none';
     currentTotal = data.total;
     currentTotalPages = data.total_pages;
-    $('stats').textContent = expandPages ? `共 ${data.total} 张` : `共 ${data.total} 件`;
+    $('stats').textContent = expandPages ? `共 ${data.total_images || data.total} 张` : `共 ${data.total} 件`;
+    _galleryHasMore = data.page < data.total_pages;
 
     const wall = $('wall');
-    wall.innerHTML = '';
+    if (!append) {
+        clearGalleryImageCache();
+        if (_galleryLazyObserver) _galleryLazyObserver.disconnect();
+        wall.innerHTML = '';
+        _navIds = [];
+        _navItems = [];
+        _navIndex = -1;
+        window.scrollTo({ top: 0 });
+    }
 
     if (!data.artworks.length) {
-        $('empty').style.display = 'block';
-        $('empty').textContent = currentSearch ? '没有找到匹配的作品。' : (currentFilter.value ? '该筛选下没有作品。' : '没有找到作品。\n请先扫描图片目录，然后同步元数据。');
-        $('pagination').style.display = 'none';
+        if (!append && wall.children.length === 0) {
+            $('empty').style.display = 'block';
+            $('empty').textContent = currentSearch ? '没有找到匹配的作品。' : (currentFilter.value ? '该筛选下没有作品。' : '没有找到作品。\n请先扫描图片目录，然后同步元数据。');
+        }
         return;
     }
 
     const frag = document.createDocumentFragment();
-    _navIds = data.artworks.map(a => a.id);
-    _navItems = data.artworks.map(a => ({ id: a.id, page: a.image_page || 1 }));
+    const pageIndex = data.page || currentPage;
     data.artworks.forEach((a, idx) => {
-        const tile = document.createElement('div');
-        tile.className = 'tile';
-        tile.style.animationDelay = Math.min(idx * 5, 100) + 'ms';
-        tile.dataset.id = a.id;
-        tile.dataset.title = a.title || `Pixiv ID: ${a.pixiv_id}`;
-        tile.dataset.author = a.author_name || '';
-        tile.dataset.pages = a.page_count;
-        tile.dataset.page = a.image_page || 1;
-        tile.dataset.status = a.pixiv_status || 'active';
-        tile.dataset.pid = a.pixiv_id;
-        tile.onclick = () => { _navIndex = idx; showViewer(a.id, a.image_page || 1); };
+        const pages = galleryPages(a);
+        const group = document.createElement('div');
+        group.className = 'artwork-group';
+        group.style.animationDelay = Math.min(((pageIndex - 1) * 100 + idx) * 5, 100) + 'ms';
+        const artNavIdx = _navItems.length;
+        _navIds.push(a.id);
+        _navItems.push({ id: a.id, page: 1, pageCount: a.page_count || 1 });
 
-        let badges = '';
-        if (expandPages && a.page_count > 1) badges += `<span>P${a.image_page || 1}</span>`;
-        else if (a.page_count > 1) badges += `<span>${a.page_count}P</span>`;
-        if (a.is_r18) badges += `<span class="r18">R18</span>`;
-        if (a.pixiv_status === 'deleted') badges += `<span class="deleted">已删除</span>`;
-        if (a.sync_error) badges += `<span class="sync-err">同步失败</span>`;
+        pages.forEach((img) => {
+            const tile = document.createElement('div');
+            tile.className = 'tile';
+            tile.dataset.id = a.id;
+            tile.dataset.title = a.title || `Pixiv ID: ${a.pixiv_id}`;
+            tile.dataset.author = a.author_name || '';
+            tile.dataset.pages = a.page_count;
+            tile.dataset.page = img.page || 1;
+            tile.dataset.status = a.pixiv_status || 'active';
+            tile.dataset.pid = a.pixiv_id;
+            tile.onclick = () => { _navIndex = artNavIdx; showViewer(a.id, img.page || 1); };
 
-        const title = (a.title || `Pixiv ID: ${a.pixiv_id}`);
-        const favCls = a.is_favorited ? ' faved' : '';
-        const selected = _selectedIds.has(a.id);
+            let badges = '';
+            if (expandPages && a.page_count > 1) badges += `<span>P${img.page || 1}</span>`;
+            else if (a.page_count > 1) badges += `<span>${a.page_count}P</span>`;
+            if (a.is_r18) badges += `<span class="r18">R18</span>`;
+            if (a.is_ai) badges += `<span class="ai">AI</span>`;
+            if (a.pixiv_status === 'deleted') badges += `<span class="deleted">已删除</span>`;
+            if (a.sync_error) badges += `<span class="sync-err">同步失败</span>`;
 
-        tile.innerHTML = `
-            ${galleryImageSrc(a) ? `<img src="${galleryImageSrc(a)}" alt="" loading="lazy">` : ''}
-            <span class="tile-check${selected ? ' checked' : ''}" onclick="event.stopPropagation();if(event.target.tagName!=='INPUT')toggleTileCheck(this, ${a.id})">
-                <input type="checkbox" class="tile-checkbox" ${selected ? 'checked' : ''} onchange="toggleSelect(${a.id}, this)">
-            </span>
-            <div class="tile-badges">${badges}</div>
-            <div class="tile-title">${escapeHtml(title)}</div>
-            <div class="tile-actions">
-                <button class="tile-action-btn${favCls}" onclick="event.stopPropagation();event.preventDefault();openFavSelect(${a.id})" title="${a.is_favorited ? '已收藏（点击管理）' : '收藏'}"><svg class="icon"><use href="#i-${a.is_favorited ? 'star' : 'star-o'}"/></svg></button>
-                <button class="tile-action-btn del" onclick="event.stopPropagation();event.preventDefault();deleteArtworkFromTile(${a.id}, '${escapeAttr(title)}')" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
-            </div>`;
+            const title = (a.title || `Pixiv ID: ${a.pixiv_id}`);
+            const favCls = a.is_favorited ? ' faved' : '';
+            const selected = _selectedIds.has(a.id);
+            const imgSrc = galleryImageSrc(a, img);
+            const fallbackImage = (!expandPages && img && img.path)
+                ? paImg('/image/' + encodeURI(img.path))
+                : (expandPages && img && img.path ? paImg('/image/' + encodeURI(img.path)) : '');
+            const imageHtml = imgSrc
+                ? `<img data-src="${escapeAttr(imgSrc)}" data-fallback-src="${escapeAttr(fallbackImage)}" alt="" loading="lazy" decoding="async">`
+                : '';
 
-        frag.appendChild(tile);
+            tile.innerHTML = `
+                ${imageHtml}
+                <span class="tile-check${selected ? ' checked' : ''}" onclick="event.stopPropagation();if(event.target.tagName!=='INPUT')toggleTileCheck(this, ${a.id})">
+                    <input type="checkbox" class="tile-checkbox" ${selected ? 'checked' : ''} onchange="toggleSelect(${a.id}, this)">
+                </span>
+                <div class="tile-badges">${badges}</div>
+                <div class="tile-title">${escapeHtml(title)}</div>
+                <div class="tile-actions">
+                    <button class="tile-action-btn${favCls}" onclick="event.stopPropagation();event.preventDefault();openFavSelect(${a.id})" title="${a.is_favorited ? '已收藏（点击管理）' : '收藏'}"><svg class="icon"><use href="#i-${a.is_favorited ? 'star' : 'star-o'}"/></svg></button>
+                    <button class="tile-action-btn del" onclick="event.stopPropagation();event.preventDefault();deleteArtworkFromTile(${a.id}, '${escapeAttr(title)}')" title="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+                </div>`;
+
+            group.appendChild(tile);
+        });
+        frag.appendChild(group);
     });
     wall.appendChild(frag);
-    renderPagination(data);
+    warmGalleryImagesForNextMode(data.artworks, append);
+    layoutGalleryGroups();
+    bindGalleryGroupLayout(wall);
+    scheduleGalleryGroupLayout();
+    // Trigger near-viewport loading synchronously after insertion so mode
+    // switches do not leave a blank masonry frame waiting for the next RAF.
+    preloadGalleryImagesNearViewport(wall);
+    observeLazyGalleryImages(wall);
+    requestAnimationFrame(() => {
+        preloadGalleryImagesNearViewport(wall);
+        scheduleGalleryGroupLayout();
+    });
+    maybeLoadMoreGallery();
 }
 
-function galleryImageSrc(a) {
-    if (expandPages && a.image_path) return paImg('/image/' + encodeURI(a.image_path));
+function galleryPages(a) {
+    const images = Array.isArray(a.images) ? a.images.slice() : [];
+    images.sort((x, y) => (x.page || 0) - (y.page || 0));
+    if (expandPages && images.length) return images;
+    const first = images.find(img => Number(img.page) === 1) || images[0];
+    if (first) return [first];
+    return [{ page: a.image_page || 1, path: a.image_path || '' }];
+}
+
+function galleryImageSrc(a, img) {
+    if (expandPages && img && img.id) return paImg('/image-thumb/' + img.id);
     return a.thumb_path ? `/thumbnails/${a.pixiv_id}.jpg` : '';
+}
+
+function loadGalleryImage(img) {
+    if (!img || !img.dataset.src) return;
+    const src = img.dataset.src;
+    img.loading = 'eager';
+    img.addEventListener('load', scheduleGalleryGroupLayout, { once: true });
+    img.addEventListener('error', () => {
+        const fallback = img.dataset.fallbackSrc;
+        if (fallback && img.src !== fallback && !img.dataset.fallbackTried) {
+            img.dataset.fallbackTried = '1';
+            img.dataset.src = fallback;
+            img.removeAttribute('src');
+            loadGalleryImage(img);
+            return;
+        }
+        scheduleGalleryGroupLayout();
+    }, { once: true });
+    img.src = src;
+    img.removeAttribute('data-src');
+    if (img.complete) scheduleGalleryGroupLayout();
+}
+
+function preloadGalleryImagesNearViewport(root) {
+    if (!root) return;
+    const range = Math.max(window.innerHeight || 0, 1) * 2;
+    root.querySelectorAll('img[data-src]').forEach(img => {
+        const rect = img.getBoundingClientRect();
+        if (rect.top <= range && rect.bottom >= -range) loadGalleryImage(img);
+    });
+}
+
+function observeLazyGalleryImages(root) {
+    if (!('IntersectionObserver' in window)) {
+        root.querySelectorAll('img[data-src]').forEach(img => {
+            loadGalleryImage(img);
+        });
+        return;
+    }
+    if (!_galleryLazyObserver) {
+        _galleryLazyObserver = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) return;
+                const img = entry.target;
+                loadGalleryImage(img);
+                _galleryLazyObserver.unobserve(img);
+            });
+        }, { root: null, rootMargin: '200% 0px 200% 0px', threshold: 0.01 });
+    }
+    root.querySelectorAll('img[data-src]').forEach(img => _galleryLazyObserver.observe(img));
+}
+
+function maybeLoadMoreGallery() {
+    if (currentView !== 'gallery' || _galleryLoading || !_galleryHasMore) return;
+    const remaining = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
+    if (remaining <= window.innerHeight * 1.5) {
+        loadGallery(currentPage + 1, { append: true, silent: true });
+    }
+}
+
+function bindGalleryGroupLayout(root) {
+    root.querySelectorAll('.artwork-group img').forEach(img => {
+        img.addEventListener('load', scheduleGalleryGroupLayout, { once: true });
+        img.addEventListener('error', scheduleGalleryGroupLayout, { once: true });
+        if (img.complete && img.src) {
+            scheduleGalleryGroupLayout();
+        }
+    });
+}
+
+function scheduleGalleryGroupLayout() {
+    if (_galleryLayoutRaf) return;
+    _galleryLayoutRaf = requestAnimationFrame(() => {
+        _galleryLayoutRaf = 0;
+        layoutGalleryGroups();
+    });
+}
+
+function layoutGalleryGroups() {
+    const wall = $('wall');
+    if (!wall) return;
+    const groups = Array.from(wall.querySelectorAll('.artwork-group'));
+    if (!groups.length) {
+        wall.style.height = '0px';
+        return;
+    }
+    const style = getComputedStyle(wall);
+    const padL = parseFloat(style.paddingLeft) || 0;
+    const padR = parseFloat(style.paddingRight) || 0;
+    const gap = parseFloat(style.columnGap || style.gap) || 12;
+    const minColWidth = window.matchMedia('(max-width: 900px)').matches ? 130 : 210;
+    const innerWidth = Math.max(1, wall.clientWidth - padL - padR);
+    const cols = Math.max(1, Math.floor((innerWidth + gap) / (minColWidth + gap)));
+    const colWidth = Math.floor((innerWidth - gap * (cols - 1)) / cols);
+    const heights = Array(cols).fill(0);
+    groups.forEach(group => {
+        group.style.position = 'absolute';
+        group.style.width = colWidth + 'px';
+        group.style.left = '0px';
+        group.style.top = '0px';
+        group.style.gridRowEnd = 'auto';
+        let col = 0;
+        for (let i = 1; i < cols; i++) {
+            if (heights[i] < heights[col]) col = i;
+        }
+        // Absolute-positioned groups use the wall's padding box as their
+        // containing block, so include the same inset used by normal views.
+        const left = padL + col * (colWidth + gap);
+        const top = heights[col];
+        group.style.left = left + 'px';
+        group.style.top = top + 'px';
+        const height = group.getBoundingClientRect().height;
+        heights[col] = top + height + gap;
+    });
+    const totalHeight = Math.max.apply(null, heights);
+    wall.style.height = Math.max(0, totalHeight - gap) + 'px';
+}
+
+function initGalleryResizeObserver() {
+    if (!('ResizeObserver' in window) || _galleryResizeObserver) return;
+    const wall = $('wall');
+    const content = document.querySelector('.content');
+    const sidebar = document.querySelector('.sidebar');
+    const targets = [content, wall, sidebar].filter(Boolean);
+    if (!targets.length) return;
+    _galleryResizeObserver = new ResizeObserver(() => {
+        scheduleGalleryGroupLayout();
+    });
+    targets.forEach(target => _galleryResizeObserver.observe(target));
+}
+
+function releaseFrontendDisplayResources() {
+    if (_sseResourcesReleased) return;
+    _sseResourcesReleased = true;
+    _viewerDetailCache.clear();
+    _viewerDetailPending.clear();
+    _viewerPreloadUrls.clear();
+    clearGalleryImageCache();
+    clearTimeout(window._metadataGalleryRefreshTimer);
+    clearTimeout(_gallerySidebarTimer);
+    if (_galleryLayoutRaf) {
+        cancelAnimationFrame(_galleryLayoutRaf);
+        _galleryLayoutRaf = 0;
+    }
+    if (_galleryLazyObserver) {
+        _galleryLazyObserver.disconnect();
+        _galleryLazyObserver = null;
+    }
+    if (_galleryResizeObserver) {
+        _galleryResizeObserver.disconnect();
+        _galleryResizeObserver = null;
+    }
+    // Keep tile nodes but release decoded image resources. The URL remains
+    // in data-src so the gallery can be restored after SSE reconnects.
+    document.querySelectorAll('#wall img').forEach(img => {
+        const src = img.currentSrc || img.getAttribute('src') || '';
+        if (src) {
+            img.dataset.src = src;
+            img.removeAttribute('src');
+        }
+    });
+    clearTimeout(_watchPollTimer);
+    _watchPollTimer = null;
+}
+
+function scheduleSseResourceRelease() {
+    if (_sseResourcesReleased || _sseReleaseTimer) return;
+    _sseReleaseTimer = setTimeout(() => {
+        _sseReleaseTimer = null;
+        releaseFrontendDisplayResources();
+    }, _sseReleaseDelaySeconds * 1000);
+}
+
+function restoreFrontendDisplayResources() {
+    clearTimeout(_sseReleaseTimer);
+    _sseReleaseTimer = null;
+    const wasReleased = _sseResourcesReleased;
+    _sseResourcesReleased = false;
+    if (!wasReleased) return;
+    initGalleryResizeObserver();
+    const wall = $('wall');
+    if (wall) {
+        observeLazyGalleryImages(wall);
+        preloadGalleryImagesNearViewport(wall);
+        scheduleGalleryGroupLayout();
+    }
+    if (currentView === 'gallery') loadGallery(1, { silent: true });
 }
 
 function toggleTileCheck(span, artworkId) {
@@ -742,17 +1414,19 @@ function toggleTileCheck(span, artworkId) {
 }
 
 function toggleSelect(artworkId, checkbox) {
-    const tile = checkbox.closest('.tile');
-    const check = checkbox.closest('.tile-check');
     if (checkbox.checked) {
         _selectedIds.add(artworkId);
-        if (tile) tile.classList.add('selected');
-        if (check) check.classList.add('checked');
     } else {
         _selectedIds.delete(artworkId);
-        if (tile) tile.classList.remove('selected');
-        if (check) check.classList.remove('checked');
     }
+    const selected = _selectedIds.has(artworkId);
+    document.querySelectorAll(`#wall .tile[data-id="${artworkId}"]`).forEach(tile => {
+        tile.classList.toggle('selected', selected);
+        const cb = tile.querySelector('.tile-checkbox');
+        if (cb) cb.checked = selected;
+        const check = tile.querySelector('.tile-check');
+        if (check) check.classList.toggle('checked', selected);
+    });
     updateBatchBar();
 }
 
@@ -867,28 +1541,12 @@ async function refreshTileFavState(artworkId) {
         const resp = await fetch(`/api/artworks/${artworkId}`);
         const data = await resp.json();
         const hasFav = (data.favorites || []).length > 0;
-        const btn = tile.querySelector('.tile-action-btn');
-        if (btn) {
+        document.querySelectorAll(`.tile[data-id="${artworkId}"] .tile-action-btn`).forEach(btn => {
             btn.classList.toggle('faved', hasFav);
             btn.innerHTML = '<svg class="icon"><use href="#i-' + (hasFav ? 'star' : 'star-o') + '"/></svg>';
             btn.title = hasFav ? '已收藏（点击管理）' : '收藏';
-        }
+        });
     } catch (e) {}
-}
-
-function renderPagination(data) {
-    const pag = $('pagination');
-    if (data.total_pages <= 1) { pag.style.display = 'none'; return; }
-    pag.style.display = 'flex';
-    pag.innerHTML = `
-        <button class="page-btn" ${data.page <= 1 ? 'disabled' : ''} onclick="goPage(${data.page - 1})">上一页</button>
-        <span class="page-info">第 ${data.page} / ${data.total_pages} 页</span>
-        <button class="page-btn" ${data.page >= data.total_pages ? 'disabled' : ''} onclick="goPage(${data.page + 1})">下一页</button>`;
-}
-
-function goPage(page) {
-    loadGallery(page);
-    window.scrollTo({ top: 0 });
 }
 
 // ===== Authors view =====
@@ -1207,6 +1865,495 @@ function confirmBmAdd() {
         .catch(() => { msg.textContent = '添加失败：无法连接服务器'; msg.style.display = 'block'; });
 }
 
+// ===== Duplicates =====
+let _duplicateViewMode = 'duplicates';
+let _duplicateGroupsCache = null;
+
+async function loadDuplicatesView(mode = _duplicateViewMode) {
+    _duplicateViewMode = mode === 'suspects' ? 'suspects' : 'duplicates';
+    const duplicateTab = $('duplicateTab');
+    const suspectTab = $('suspectTab');
+    if (duplicateTab) duplicateTab.classList.toggle('active', _duplicateViewMode === 'duplicates');
+    if (suspectTab) suspectTab.classList.toggle('active', _duplicateViewMode === 'suspects');
+    const autoButton = $('duplicateAutoSelectBtn');
+    if (autoButton) {
+        autoButton.title = _duplicateViewMode === 'suspects'
+            ? '自动勾选分辨率较低的图片'
+            : '自动勾选较新的重复图片，保留最早文件';
+        autoButton.innerHTML = _duplicateViewMode === 'suspects'
+            ? '<svg class="icon"><use href="#i-check"/></svg>自动勾选低分辨率'
+            : '<svg class="icon"><use href="#i-check"/></svg>自动勾选较新文件';
+    }
+    const list = $('duplicateList');
+    list.innerHTML = '<div class="loading">加载中...</div>';
+    try {
+        const resp = await fetch('/api/duplicates');
+        const data = await resp.json();
+        _duplicateGroupsCache = data;
+        const groups = _duplicateViewMode === 'suspects' ? (data.suspects || []) : (data.groups || []);
+        if (!groups.length) {
+            list.innerHTML = _duplicateViewMode === 'suspects'
+                ? '<div class="empty-state">暂无怀疑图片。这里显示同一作品同一页但 hash 不一致的图片。</div>'
+                : '<div class="empty-state">暂无重复图片。这里显示同一作品同一页且 hash 一致的图片。</div>';
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        groups.forEach(group => {
+            const row = document.createElement('div');
+            row.className = 'duplicate-group';
+            let itemsHtml = '';
+            const groupItems = group.items || [];
+            let oldestIndex = 0;
+            let oldestTime = Infinity;
+            groupItems.forEach((item, idx) => {
+                const createdAt = Number(item.created_at || 0);
+                if (createdAt > 0 && createdAt < oldestTime) {
+                    oldestTime = createdAt;
+                    oldestIndex = idx;
+                }
+            });
+            groupItems.forEach((item, idx) => {
+                const area = Number(item.width || 0) * Number(item.height || 0);
+                const resolutionScore = area || Number(item.file_size || 0);
+                const defaultChecked = _duplicateViewMode === 'suspects'
+                    ? (idx > 0 ? 'checked' : '')
+                    : (idx !== oldestIndex ? 'checked' : '');
+                const createdText = formatDuplicateDate(item.created_at);
+                itemsHtml += `
+                    <label class="duplicate-item" data-created-at="${Number(item.created_at || 0)}" data-area="${resolutionScore}">
+                        <input type="checkbox" class="duplicate-check" value="${item.image_id}" ${defaultChecked}>
+                        <img src="${paImg('/image-thumb/' + item.image_id)}" data-fallback-src="${paImg('/image/' + encodeURI(item.path))}" loading="lazy" alt="" onclick="event.preventDefault();showViewer(${item.artwork_id}, ${item.page || 1})">
+                        <span title="${escapeAttr(item.path || '')}">${escapeHtml(item.title || ('Pixiv ID: ' + item.pixiv_id))} · P${item.page || 1}</span>
+                        <small class="duplicate-created">创建：${escapeHtml(createdText)}</small>
+                    </label>`;
+            });
+            row.innerHTML = `
+                <div class="duplicate-meta">
+                    <strong>${escapeHtml(group.file_name || '重复图片')}</strong>
+                    <span>${group.file_size ? formatBytes(group.file_size) + ' · ' : ''}${(group.items || []).length} 张</span>
+                </div>
+                <div class="duplicate-items">${itemsHtml}</div>`;
+            frag.appendChild(row);
+        });
+        list.innerHTML = '';
+        list.appendChild(frag);
+        renderDuplicateLogs();
+    } catch (e) {
+        list.innerHTML = '<div class="empty-state">加载失败：' + escapeHtml(e.message) + '</div>';
+    }
+}
+
+function formatDuplicateDate(timestamp) {
+    const value = Number(timestamp || 0);
+    if (!value) return '未知';
+    const date = new Date(value * 1000);
+    return isNaN(date.getTime()) ? '未知' : date.toLocaleString([], { hour12: false });
+}
+
+function invertDuplicateSelection() {
+    const checks = document.querySelectorAll('#duplicateList .duplicate-check');
+    if (!checks.length) {
+        showToast('当前没有可反选的图片');
+        return;
+    }
+    checks.forEach(check => {
+        check.checked = !check.checked;
+    });
+    const message = _duplicateViewMode === 'suspects'
+        ? `怀疑图片反选，调整 ${checks.length} 项`
+        : `重复图片反选，调整 ${checks.length} 项`;
+    appendDuplicateLog(message);
+    appendOperationLog(`去重：${message}`);
+}
+
+function autoSelectDuplicateKeepOldest() {
+    let changed = 0;
+    document.querySelectorAll('.duplicate-group').forEach(group => {
+        const items = Array.from(group.querySelectorAll('.duplicate-item'));
+        if (items.length < 2) return;
+        if (_duplicateViewMode === 'suspects') {
+            let largest = items[0];
+            items.forEach(item => {
+                const checkbox = item.querySelector('.duplicate-check');
+                const area = Number(item.querySelector('img')?.naturalWidth || 0) * Number(item.querySelector('img')?.naturalHeight || 0);
+                const declared = Number(item.dataset.area || 0);
+                if (declared > Number(largest.dataset.area || 0)) largest = item;
+            });
+            items.forEach(item => {
+                const checkbox = item.querySelector('.duplicate-check');
+                const shouldCheck = item !== largest;
+                if (checkbox && checkbox.checked !== shouldCheck) changed += 1;
+                if (checkbox) checkbox.checked = shouldCheck;
+            });
+            return;
+        }
+        const oldest = items.reduce((best, item) => {
+            const currentTime = Number(item.dataset.createdAt || 0);
+            const bestTime = Number(best.dataset.createdAt || 0);
+            if (currentTime > 0 && (bestTime <= 0 || currentTime < bestTime)) return item;
+            return best;
+        }, items[0]);
+        items.forEach(item => {
+            const checkbox = item.querySelector('.duplicate-check');
+            const shouldCheck = item !== oldest;
+            if (checkbox && checkbox.checked !== shouldCheck) changed += 1;
+            if (checkbox) checkbox.checked = shouldCheck;
+        });
+    });
+    const message = _duplicateViewMode === 'suspects'
+        ? `自动勾选低分辨率图片，调整 ${changed} 项，保留分辨率最高文件`
+        : `自动勾选较新重复图片，调整 ${changed} 项，保留创建时间最早文件`;
+    appendDuplicateLog(message);
+    appendOperationLog(`去重：${message}`);
+}
+
+function formatBytes(n) {
+    const value = Number(n || 0);
+    if (value >= 1024 * 1024) return (value / 1024 / 1024).toFixed(1) + ' MB';
+    if (value >= 1024) return (value / 1024).toFixed(1) + ' KB';
+    return value + ' B';
+}
+
+function deleteSelectedDuplicates() {
+    const ids = Array.from(document.querySelectorAll('.duplicate-check:checked')).map(x => parseInt(x.value, 10)).filter(Boolean);
+    if (!ids.length) { showToast('没有勾选重复图片'); return; }
+    showConfirmDialog('删除重复图片', `确认删除已勾选的 ${ids.length} 张重复图片？会同时删除本地文件。`, function () {
+        fetch('/api/duplicates/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_ids: ids })
+        })
+            .then(r => r.json())
+            .then(d => {
+                if (d.error) { showToast(d.error.message || '删除失败'); return; }
+                appendDuplicateLog(`删除 ${d.deleted || 0} 张，失败 ${d.failed || 0}`);
+                appendOperationLog(`去重：删除 ${d.deleted || 0} 张，失败 ${d.failed || 0}`);
+                if (d.failed) {
+                    const first = (d.errors || [])[0] || {};
+                    showToast(`删除失败 ${d.failed} 张：${first.error || '请检查源目录是否以读写方式挂载'}`);
+                }
+                loadDuplicatesView();
+                refreshGalleryWarmCacheAfterChange();
+            })
+            .catch(e => showToast('删除失败：' + e.message));
+    }, '删除');
+}
+
+// ===== Organize files =====
+const ORGANIZE_RULE_HINTS = {
+    shaft_classic: '示例：输出目录/ShaftImages/',
+    shaft_modern: '示例：输出目录/Shaft/R18/AI/画师_55555/',
+    shaft_flat: '示例：输出目录/Shaft/',
+    shaft_date: '示例：输出目录/Shaft/2026/2026-09/',
+    shaft_artist: '示例：输出目录/Shaft/画师_55555/',
+    shaft_artist_date: '示例：输出目录/Shaft/画师_55555/2026/2026-09/',
+    shaft_artist_work: '示例：输出目录/Shaft/画师_55555/标题 123456789/',
+    shaft_id: '示例：输出目录/Shaft/',
+    shaft_detail: '示例：输出目录/ShaftImages/标题_123456789/',
+    custom: '自定义模板会相对于输出文件夹生成路径',
+};
+const ORGANIZE_RULE_LABELS = {
+    shaft_classic: 'Shaft 经典（兼容 4.5.8 之前）',
+    shaft_modern: 'Shaft 现代（R18/AI 嵌套）',
+    shaft_flat: '扁平（不按作者）',
+    shaft_date: '按日期分组',
+    shaft_artist: '按作者分组',
+    shaft_artist_date: '作者 + 年月分组',
+    shaft_artist_work: '作者 + 作品文件夹',
+    shaft_id: '极简（只用 ID）',
+    bucket: 'R18 / AI 强制分桶',
+    shaft_detail: '详细（标题+ID+P+画师+尺寸+时间）',
+    custom: '自定义模板',
+};
+const ORGANIZE_MODE_LABELS = {
+    copy: '复制',
+    move: '移动',
+    symlink: '软链接',
+    hardlink: '硬链接',
+};
+const ORGANIZE_RENAME_LABELS = {
+    keep: '保持原文件名',
+    shaft_classic: '标题_ID_页码',
+    shaft_modern: '标题 ID_页码',
+    title_author_page: '标题 作者_页码',
+    shaft_id: '仅 ID_页码',
+    shaft_detail: '详细信息',
+    custom: '自定义模板',
+};
+const ORGANIZE_RENAME_HINTS = {
+    keep: '整理后保留源文件名',
+    shaft_classic: '示例：作品标题_123456789_p1.jpg',
+    shaft_modern: '示例：作品标题 123456789_p1.jpg',
+    title_author_page: '示例：作品标题 作者名_p1.jpg',
+    shaft_id: '示例：123456789_p1.jpg',
+    shaft_detail: '示例：作品标题_123456789_1_作者_1920x1080_20260908_120000.jpg',
+    custom: '这里只生成文件名，不会创建子目录',
+};
+
+function renderOrganizeSourceDirs(dirs) {
+    const list = $('organizeSourceDirList');
+    if (!list) return;
+    const values = (dirs && dirs.length ? dirs : ['']).map(v => v || '');
+    list.innerHTML = '';
+    values.forEach((value, idx) => {
+        const row = document.createElement('div');
+        row.className = 'source-dir-row';
+        row.innerHTML = `<input type="text" placeholder="例如 /app/data/images" value="${escapeAttr(value)}">
+            ${idx === 0
+                ? '<button type="button" class="top-btn settings-icon-btn source-dir-action" onclick="addOrganizeSourceDirInput()" title="新增源文件夹" aria-label="新增源文件夹"><svg class="icon"><use href="#i-plus"/></svg></button>'
+                : '<button type="button" class="top-btn settings-icon-btn source-dir-action danger" onclick="removeOrganizeSourceDirInput(this)" title="移除此源文件夹" aria-label="移除此源文件夹"><svg class="icon"><use href="#i-x"/></svg></button>'}`;
+        list.appendChild(row);
+    });
+}
+
+function getOrganizeSourceDirs() {
+    return Array.from(document.querySelectorAll('#organizeSourceDirList input'))
+        .map(input => input.value.trim()).filter(Boolean);
+}
+
+function addOrganizeSourceDirInput() {
+    const dirs = getOrganizeSourceDirs();
+    dirs.push('');
+    renderOrganizeSourceDirs(dirs);
+    const inputs = document.querySelectorAll('#organizeSourceDirList input');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+}
+
+function removeOrganizeSourceDirInput(btn) {
+    const row = btn.closest('.source-dir-row');
+    if (row) row.remove();
+    if (!document.querySelector('#organizeSourceDirList input')) renderOrganizeSourceDirs(['']);
+}
+
+async function loadOrganizeDefaults() {
+    const list = $('organizeSourceDirList');
+    if (!list || list.dataset.loaded === '1') return;
+    list.dataset.loaded = '1';
+    try {
+        const resp = await fetch('/api/settings');
+        const data = await resp.json();
+        const sourceDirs = data.organize_source_dirs && data.organize_source_dirs.length
+            ? data.organize_source_dirs
+            : (data.image_source_dirs && data.image_source_dirs.length
+                ? data.image_source_dirs : (data.image_source_dir ? [data.image_source_dir] : ['']));
+        renderOrganizeSourceDirs(sourceDirs);
+        $('organizeOutputDir').value = data.organize_output_dir || '';
+        const mode = ORGANIZE_MODE_LABELS[data.organize_mode] ? data.organize_mode : 'symlink';
+        const rule = ORGANIZE_RULE_LABELS[data.organize_path_rule] ? data.organize_path_rule : 'bucket';
+        setOrganizeMode(mode, ORGANIZE_MODE_LABELS[mode]);
+        setOrganizePathRule(rule, ORGANIZE_RULE_LABELS[rule]);
+        $('organizePathTemplate').value = data.organize_path_template || '';
+        $('organizeUnknownAsHuman').checked = data.organize_unknown_as_human === true;
+        $('organizeRenameEnabled').checked = !!data.organize_rename_enabled;
+        const renameRule = ORGANIZE_RENAME_LABELS[data.organize_rename_rule]
+            ? data.organize_rename_rule : 'title_author_page';
+        setOrganizeRenameRule(renameRule, ORGANIZE_RENAME_LABELS[renameRule]);
+        $('organizeRenameTemplate').value = data.organize_rename_template || '';
+        updateOrganizeRenameVisibility();
+        updateOrganizeUnknownAsHumanVisibility();
+    } catch (e) {
+        renderOrganizeSourceDirs(['']);
+    }
+}
+
+function startOrganizeJob() {
+    const sourceDirs = getOrganizeSourceDirs();
+    const outputDir = $('organizeOutputDir').value.trim();
+    const mode = $('organizeMode').value || 'symlink';
+    const pathRule = $('organizePathRule').value || 'bucket';
+    const pathTemplate = $('organizePathTemplate').value.trim();
+    const unknownAsHuman = $('organizeUnknownAsHuman').checked;
+    const renameEnabled = $('organizeRenameEnabled').checked;
+    const renameRule = $('organizeRenameRule').value || 'title_author_page';
+    const renameTemplate = $('organizeRenameTemplate').value.trim();
+    const msg = $('organizeMsg');
+    if (!sourceDirs.length || !outputDir) {
+        msg.style.display = 'block';
+        msg.textContent = '请填写源文件夹和输出文件夹';
+        msg.style.color = '#e94560';
+        return;
+    }
+    if (pathRule === 'custom' && !pathTemplate) {
+        msg.style.display = 'block';
+        msg.textContent = '请填写自定义整理路径模板';
+        msg.style.color = 'var(--danger)';
+        return;
+    }
+    if (renameEnabled && renameRule === 'custom' && !renameTemplate) {
+        msg.style.display = 'block';
+        msg.textContent = '请填写自定义重命名模板';
+        msg.style.color = 'var(--danger)';
+        return;
+    }
+    msg.style.display = 'none';
+    $('organizeUndoStatus').textContent = '';
+    $('organizeUndoStatus').style.display = 'none';
+    $('undoOrganizeBtn').disabled = false;
+    appendOrganizeLog(`开始整理：${sourceDirs.join('、')} → ${outputDir}（${mode}，${$('organizePathRuleLabel').textContent}）`);
+    launchJob('/api/organize', 'organize', 'POST', {
+        source_dirs: sourceDirs,
+        output_dir: outputDir,
+        mode,
+        path_rule: pathRule,
+        path_template: pathTemplate,
+        unknown_as_human: unknownAsHuman,
+        rename_enabled: renameEnabled,
+        rename_rule: renameRule,
+        rename_template: renameTemplate
+    });
+}
+
+function getOrganizeSettingsPayload() {
+    return {
+        organize_source_dirs: getOrganizeSourceDirs(),
+        organize_output_dir: $('organizeOutputDir').value.trim(),
+        organize_mode: $('organizeMode').value || 'symlink',
+        organize_path_rule: $('organizePathRule').value || 'bucket',
+        organize_path_template: $('organizePathTemplate').value.trim(),
+        organize_unknown_as_human: $('organizeUnknownAsHuman').checked,
+        organize_rename_enabled: $('organizeRenameEnabled').checked,
+        organize_rename_rule: $('organizeRenameRule').value || 'title_author_page',
+        organize_rename_template: $('organizeRenameTemplate').value.trim(),
+    };
+}
+
+async function saveOrganizeSettings() {
+    const payload = getOrganizeSettingsPayload();
+    const msg = $('organizeMsg');
+    if (!payload.organize_source_dirs.length || !payload.organize_output_dir) {
+        msg.style.display = 'block';
+        msg.textContent = '请填写源文件夹和输出文件夹';
+        msg.style.color = 'var(--danger)';
+        return;
+    }
+    if (payload.organize_path_rule === 'custom' && !payload.organize_path_template) {
+        msg.style.display = 'block';
+        msg.textContent = '请填写自定义整理路径模板';
+        msg.style.color = 'var(--danger)';
+        return;
+    }
+    if (payload.organize_rename_enabled && payload.organize_rename_rule === 'custom' && !payload.organize_rename_template) {
+        msg.style.display = 'block';
+        msg.textContent = '请填写自定义重命名模板';
+        msg.style.color = 'var(--danger)';
+        return;
+    }
+    try {
+        const resp = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) throw new Error((data.error && data.error.message) || '保存失败');
+        msg.style.display = 'block';
+        msg.textContent = '整理设置已保存';
+        msg.style.color = 'var(--success)';
+    } catch (e) {
+        msg.style.display = 'block';
+        msg.textContent = '保存失败：' + e.message;
+        msg.style.color = 'var(--danger)';
+    }
+}
+
+function toggleOrganizeModeMenu() {
+    const menu = $('organizeModeMenu');
+    const button = $('organizeModeButton');
+    if (!menu || !button) return;
+    const open = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden');
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function setOrganizeMode(value, label) {
+    const input = $('organizeMode');
+    const button = $('organizeModeButton');
+    const text = $('organizeModeLabel');
+    const menu = $('organizeModeMenu');
+    if (input) input.value = value;
+    if (text) text.textContent = label;
+    if (menu) {
+        menu.classList.add('hidden');
+        menu.querySelectorAll('[role="option"]').forEach(option => {
+            option.setAttribute('aria-selected', option.dataset.value === value ? 'true' : 'false');
+        });
+    }
+    if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+function toggleOrganizePathRuleMenu() {
+    const menu = $('organizePathRuleMenu');
+    const button = $('organizePathRuleButton');
+    if (!menu || !button) return;
+    const open = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden');
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function setOrganizePathRule(value, label) {
+    $('organizePathRule').value = value;
+    $('organizePathRuleLabel').textContent = label;
+    $('organizePathRuleHint').textContent = ORGANIZE_RULE_HINTS[value] || '';
+    $('organizePathTemplateField').classList.toggle('hidden', value !== 'custom');
+    const menu = $('organizePathRuleMenu');
+    const button = $('organizePathRuleButton');
+    menu.classList.add('hidden');
+    button.setAttribute('aria-expanded', 'false');
+    menu.querySelectorAll('[role="option"]').forEach(option => {
+        option.setAttribute('aria-selected', option.dataset.value === value ? 'true' : 'false');
+    });
+    updateOrganizeUnknownAsHumanVisibility();
+}
+
+function toggleOrganizeRenameRuleMenu() {
+    const menu = $('organizeRenameRuleMenu');
+    const button = $('organizeRenameRuleButton');
+    if (!menu || !button) return;
+    const open = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden');
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function setOrganizeRenameRule(value, label) {
+    $('organizeRenameRule').value = value;
+    $('organizeRenameRuleLabel').textContent = label;
+    $('organizeRenameRuleHint').textContent = ORGANIZE_RENAME_HINTS[value] || '';
+    $('organizeRenameTemplateField').classList.toggle('hidden', value !== 'custom');
+    const menu = $('organizeRenameRuleMenu');
+    const button = $('organizeRenameRuleButton');
+    menu.classList.add('hidden');
+    button.setAttribute('aria-expanded', 'false');
+    menu.querySelectorAll('[role="option"]').forEach(option => {
+        option.setAttribute('aria-selected', option.dataset.value === value ? 'true' : 'false');
+    });
+}
+
+function updateOrganizeRenameVisibility() {
+    const enabled = $('organizeRenameEnabled').checked;
+    $('organizeRenameSettings').classList.toggle('hidden', !enabled);
+}
+
+function pathHasAIClassification() {
+    const rule = $('organizePathRule').value;
+    if (rule === 'bucket' || rule === 'shaft_modern') return true;
+    return rule === 'custom' && /\[\?!?AI:/.test($('organizePathTemplate').value || '');
+}
+
+function updateOrganizeUnknownAsHumanVisibility() {
+    const field = $('organizeUnknownAsHumanField');
+    const checkbox = $('organizeUnknownAsHuman');
+    if (!field || !checkbox) return;
+    const visible = pathHasAIClassification();
+    field.classList.toggle('hidden', !visible);
+    if (!visible) checkbox.checked = false;
+}
+
+function undoOrganizeJob() {
+    $('organizeUndoStatus').textContent = '';
+    $('organizeUndoStatus').style.display = 'none';
+    launchJob('/api/organize/undo', 'organize_undo', 'POST');
+}
+
 // ===== Favorite select dialog =====
 async function openFavSelect(ids) {
     const idList = Array.isArray(ids) ? ids : [ids];
@@ -1319,72 +2466,146 @@ async function confirmFavSelect() {
     }
 }
 
+function cacheViewerDetail(data) {
+    if (data && data.id) {
+        _viewerDetailCache.set(data.id, data);
+    }
+    return data;
+}
+
+async function fetchViewerDetail(artworkId) {
+    if (_viewerDetailCache.has(artworkId)) {
+        return _viewerDetailCache.get(artworkId);
+    }
+    if (_viewerDetailPending.has(artworkId)) {
+        return _viewerDetailPending.get(artworkId);
+    }
+    const pending = fetch(`/api/artworks/${artworkId}`)
+        .then(resp => resp.json())
+        .then(data => {
+            if (!data.error) cacheViewerDetail(data);
+            return data;
+        })
+        .finally(() => {
+            _viewerDetailPending.delete(artworkId);
+        });
+    _viewerDetailPending.set(artworkId, pending);
+    return pending;
+}
+
+function viewerLastPage(data) {
+    const images = (data && data.images) || [];
+    const last = images[images.length - 1];
+    return last && last.page ? last.page : Math.max(1, images.length || 1);
+}
+
+function preloadImage(url) {
+    if (!url || _viewerPreloadUrls.has(url)) return;
+    _viewerPreloadUrls.add(url);
+    const img = new Image();
+    img.src = url;
+}
+
+function preloadViewerAssets(data) {
+    const images = (data && data.images) || [];
+    const current = images[_viewer.idx];
+    if (current && current.path) {
+        const left = images[_viewer.idx - 1];
+        const right = images[_viewer.idx + 1];
+        if (left && left.id) preloadImage(paImg('/image-thumb/' + left.id));
+        if (right && right.id) preloadImage(paImg('/image-thumb/' + right.id));
+    }
+    const prevNav = _navIds[_navIndex - 1];
+    const nextNav = _navIds[_navIndex + 1];
+    if (prevNav) preloadViewerDetail(prevNav, 'first');
+    if (nextNav) preloadViewerDetail(nextNav, 'first');
+}
+
+async function preloadViewerDetail(artworkId, edge) {
+    try {
+        const data = await fetchViewerDetail(artworkId);
+        if (!data || data.error) return;
+        const page = edge === 'last' ? viewerLastPage(data) : 1;
+        const img = (data.images || []).find(x => String(x.page || 1) === String(page)) || (edge === 'last' ? data.images && data.images[data.images.length - 1] : data.images && data.images[0]);
+        if (img && img.id) preloadImage(paImg('/image-thumb/' + img.id));
+    } catch (e) {}
+}
+
+async function openViewerWithData(data, initialPage) {
+    if (data.error) { hideViewer(); return; }
+    _viewer = { data, idx: initialPage >= 0 ? initialPage : 0 };
+    $('vLoading').style.display = 'none';
+
+    $('vTitle').textContent = data.title;
+    $('vAuthor').innerHTML = data.author_id ? `作者：<a onclick="closeViewerToAuthor('${escapeAttr(data.author_name || '')}', ${data.author_id})">${escapeHtml(data.author_name)}</a>` : '作者：未知';
+    $('vMeta').innerHTML = `
+        <div>Pixiv ID：<span>${data.pixiv_id}</span></div>
+        <div>页数：<span>${data.page_count}</span></div>
+        <div>尺寸：<span>${data.width || '?'} × ${data.height || '?'}</span></div>
+        <div>发布时间：<span>${data.create_date || '未知'}</span></div>
+        <div>状态：<span>${data.pixiv_status === 'deleted' ? '已从 Pixiv 删除' : '活跃'}</span></div>
+        <div>首次扫描：<span>${data.first_seen || '未知'}</span></div>
+        <div>最后同步：<span>${data.last_synced || '未同步'}</span></div>
+        ${data.sync_error ? `<div>同步状态：<span style="color:#e0575b;">上次同步失败：${escapeHtml(data.sync_error)}</span></div>` : ''}
+        <div class="v-image-meta" id="vImageMeta"></div>`;
+
+    let tagsHtml = '';
+    (data.tags || []).forEach(t => {
+        tagsHtml += `<a onclick="closeViewerToTag('${escapeAttr(t.name)}')">#${escapeHtml(t.name)}</a>`;
+    });
+    $('vTags').innerHTML = tagsHtml;
+
+    let favTagsHtml = '';
+    (data.favorites || []).forEach(f => {
+        favTagsHtml += `<a onclick="closeViewerToFavorite(${f.id}, '${escapeAttr(f.name)}')">${escapeHtml(f.name)}</a>`;
+    });
+    if (favTagsHtml) {
+        $('vFav').style.display = 'flex';
+        $('vFavTags').innerHTML = favTagsHtml;
+    } else {
+        $('vFav').style.display = 'none';
+    }
+
+    const hasFav = (data.favorites || []).length > 0;
+    const favBtn = $('vFavBtn');
+    favBtn.classList.toggle('faved', hasFav);
+    favBtn.innerHTML = '<svg class="icon"><use href="#i-' + (hasFav ? 'star' : 'star-o') + '"/></svg><span>' + (hasFav ? '已收藏' : '收藏') + '</span>';
+    favBtn.title = hasFav ? '已收藏（点击管理）' : '收藏';
+    applyFolderButtonVisibility();
+
+    if (data.description) {
+        $('vDesc').style.display = 'block';
+        $('vDesc').innerHTML = sanitizeHtml(data.description);
+    } else {
+        $('vDesc').style.display = 'none';
+    }
+
+    window._viewerArtworkId = data.id;
+    window._viewerTitle = data.title;
+    renderViewerImage();
+    updateArtNav();
+    preloadViewerAssets(data);
+}
+
 // ===== Viewer (left info / right image) =====
 async function showViewer(artworkId, initialPage) {
     const overlay = $('viewerOverlay');
     overlay.classList.remove('hidden');
+    try { applyViewerSidebarState(localStorage.getItem('pa-viewer-sidebar') === 'collapsed'); } catch (e) { updateViewerSidebarToggle(); }
     document.body.style.overflow = 'hidden';
     $('vLoading').style.display = 'block';
     $('vMainImage').style.display = 'none';
     $('vNav').style.display = 'none';
+    $('vPrevArt').disabled = true;
+    $('vNextArt').disabled = true;
 
     try {
-        const resp = await fetch(`/api/artworks/${artworkId}`);
-        const data = await resp.json();
+        const data = await fetchViewerDetail(artworkId);
         if (data.error) { hideViewer(); return; }
-
         const initialIdx = initialPage
-            ? Math.max(0, (data.images || []).findIndex(img => img.page === initialPage))
+            ? Math.max(0, (data.images || []).findIndex(img => String(img.page || 1) === String(initialPage)))
             : 0;
-        _viewer = { data, idx: initialIdx >= 0 ? initialIdx : 0 };
-        $('vLoading').style.display = 'none';
-
-        $('vTitle').textContent = data.title;
-        $('vAuthor').innerHTML = data.author_id ? `作者：<a onclick="closeViewerToAuthor('${escapeAttr(data.author_name || '')}', ${data.author_id})">${escapeHtml(data.author_name)}</a>` : '作者：未知';
-        $('vMeta').innerHTML = `
-            <div>Pixiv ID：<span>${data.pixiv_id}</span></div>
-            <div>页数：<span>${data.page_count}</span></div>
-            <div>尺寸：<span>${data.width || '?'} × ${data.height || '?'}</span></div>
-            <div>发布时间：<span>${data.create_date || '未知'}</span></div>
-            <div>状态：<span>${data.pixiv_status === 'deleted' ? '已从 Pixiv 删除' : '活跃'}</span></div>
-            <div>首次扫描：<span>${data.first_seen || '未知'}</span></div>
-            <div>最后同步：<span>${data.last_synced || '未同步'}</span></div>
-            ${data.sync_error ? `<div>同步状态：<span style="color:#e0575b;">上次同步失败：${escapeHtml(data.sync_error)}</span></div>` : ''}`;
-
-        let tagsHtml = '';
-        (data.tags || []).forEach(t => {
-            tagsHtml += `<a onclick="closeViewerToTag('${escapeAttr(t.name)}')">#${escapeHtml(t.name)}</a>`;
-        });
-        $('vTags').innerHTML = tagsHtml;
-
-        let favTagsHtml = '';
-        (data.favorites || []).forEach(f => {
-            favTagsHtml += `<a onclick="closeViewerToFavorite(${f.id}, '${escapeAttr(f.name)}')">${escapeHtml(f.name)}</a>`;
-        });
-        if (favTagsHtml) {
-            $('vFav').style.display = 'flex';
-            $('vFavTags').innerHTML = favTagsHtml;
-        } else {
-            $('vFav').style.display = 'none';
-        }
-
-        const hasFav = (data.favorites || []).length > 0;
-        const favBtn = $('vFavBtn');
-        favBtn.classList.toggle('faved', hasFav);
-        favBtn.innerHTML = '<svg class="icon"><use href="#i-' + (hasFav ? 'star' : 'star-o') + '"/></svg><span>' + (hasFav ? '已收藏' : '收藏') + '</span>';
-        favBtn.title = hasFav ? '已收藏（点击管理）' : '收藏';
-
-        if (data.description) {
-            $('vDesc').style.display = 'block';
-            $('vDesc').innerHTML = sanitizeHtml(data.description);
-        } else {
-            $('vDesc').style.display = 'none';
-        }
-
-        window._viewerArtworkId = data.id;
-        window._viewerTitle = data.title;
-        renderViewerImage();
-        updateArtNav();
+        await openViewerWithData(data, initialIdx >= 0 ? initialIdx : 0);
     } catch (e) {
         $('vLoading').style.display = 'none';
         showToast('加载作品失败');
@@ -1418,35 +2639,189 @@ function applyViewerZoom(factor) {
 function renderViewerImage() {
     resetViewerZoom();
     const img = _viewer.data.images[_viewer.idx];
-    if (!img) { $('vMainImage').style.display = 'none'; return; }
-    $('vMainImage').src = paImg('/image/' + encodeURI(img.path));
-    $('vMainImage').style.display = 'block';
+    if (!img) {
+        $('vMainImage').style.display = 'none';
+        hideViewerPageBubble();
+        const info = $('vImageMeta');
+        if (info) info.innerHTML = '';
+        return;
+    }
+    const mainImage = $('vMainImage');
+    const originalSrc = img.path ? paImg('/image/' + encodeURI(img.path)) : '';
+    const thumbnailSrc = img.id ? paImg('/image-thumb/' + img.id) : '';
+    const viewerImageKey = `${_viewer.data.id}:${img.id || _viewer.idx}`;
+    mainImage.dataset.viewerImageKey = viewerImageKey;
+    mainImage.dataset.originalSrc = originalSrc;
+    mainImage.dataset.thumbnailSrc = thumbnailSrc;
+    mainImage.dataset.originalLoaded = '0';
+    mainImage.dataset.originalFallbackTried = '0';
+    updateViewerOriginalButton();
+    mainImage.onerror = function () {
+        if (this.dataset.originalLoaded !== '1' && this.dataset.originalSrc && !this.dataset.originalFallbackTried) {
+            this.dataset.originalFallbackTried = '1';
+            this.src = this.dataset.originalSrc;
+        }
+    };
+    mainImage.onload = null;
+    mainImage.src = viewerImageSrc(img);
+    mainImage.style.display = 'block';
+    updateViewerImageMeta(img);
+    if (_viewerAutoOriginal && originalSrc) {
+        const original = new Image();
+        original.decoding = 'async';
+        original.onload = () => {
+            if (mainImage.dataset.viewerImageKey === viewerImageKey && _viewer.data && _viewer.data.images[_viewer.idx] === img) {
+                mainImage.dataset.originalLoaded = '1';
+                mainImage.src = originalSrc;
+                updateViewerOriginalButton();
+            }
+        };
+        original.src = originalSrc;
+    }
+    showViewerPageBubble(_viewer.idx + 1, _viewer.data.images.length);
 
     const total = _viewer.data.images.length;
-    if (total > 1) {
-        $('vNav').style.display = 'flex';
-        $('vPageIndicator').textContent = `${_viewer.idx + 1} / ${total}`;
-        $('vPrev').disabled = _viewer.idx <= 0;
-        $('vNext').disabled = _viewer.idx >= total - 1;
-    } else {
-        $('vNav').style.display = 'none';
+    const hasPrevArtwork = _navIndex > 0;
+    const hasNextArtwork = _navIndex >= 0 && _navIndex < _navIds.length - 1;
+    const atFirst = _viewer.idx <= 0;
+    const atLast = _viewer.idx >= total - 1;
+    $('vPrevArt').disabled = atFirst && !hasPrevArtwork;
+    $('vNextArt').disabled = atLast && !hasNextArtwork;
+    $('vPrevArt').removeAttribute('title');
+    $('vNextArt').removeAttribute('title');
+    $('vPrevArt').setAttribute('aria-label', atFirst && hasPrevArtwork ? '上一作品第一页' : '上一页');
+    $('vNextArt').setAttribute('aria-label', atLast && hasNextArtwork ? '下一作品第一页' : '下一页');
+    $('vPrevArt').style.display = '';
+    $('vNextArt').style.display = '';
+    preloadViewerAssets(_viewer.data);
+}
+
+function updateViewerOriginalButton(loading) {
+    const button = $('vOriginalBtn');
+    const mainImage = $('vMainImage');
+    if (!button) return;
+    const originalLoaded = mainImage && mainImage.dataset.originalLoaded === '1';
+    const shouldShow = !_viewerAutoOriginal && !originalLoaded && !!(_viewer.data && _viewer.data.images && _viewer.data.images[_viewer.idx]);
+    button.style.display = shouldShow ? 'inline-flex' : 'none';
+    button.disabled = !!loading;
+    button.classList.toggle('is-loading', !!loading);
+}
+
+function showViewerOriginal() {
+    if (_viewerAutoOriginal || !_viewer.data) return;
+    const img = _viewer.data.images[_viewer.idx];
+    const mainImage = $('vMainImage');
+    if (!img || !img.path || !mainImage || mainImage.dataset.originalLoaded === '1') return;
+    const viewerImageKey = mainImage.dataset.viewerImageKey;
+    const originalSrc = paImg('/image/' + encodeURI(img.path));
+    updateViewerOriginalButton(true);
+    const original = new Image();
+    original.decoding = 'async';
+    original.onload = () => {
+        if (mainImage.dataset.viewerImageKey !== viewerImageKey || !_viewer.data || _viewer.data.images[_viewer.idx] !== img) {
+            updateViewerOriginalButton();
+            return;
+        }
+        mainImage.dataset.originalLoaded = '1';
+        mainImage.src = originalSrc;
+        updateViewerOriginalButton();
+    };
+    original.onerror = () => updateViewerOriginalButton();
+    original.src = originalSrc;
+}
+
+function showViewerPageBubble(current, total) {
+    const bubble = $('viewerPageBubble');
+    if (!bubble) return;
+    clearTimeout(_viewerPageBubbleTimer);
+    bubble.textContent = `${current} / ${total}`;
+    bubble.classList.remove('is-visible');
+    // Let the browser commit the hidden state before starting the fade-in.
+    requestAnimationFrame(() => bubble.classList.add('is-visible'));
+    _viewerPageBubbleTimer = setTimeout(() => {
+        bubble.classList.remove('is-visible');
+    }, 1500);
+}
+
+function hideViewerPageBubble() {
+    clearTimeout(_viewerPageBubbleTimer);
+    _viewerPageBubbleTimer = 0;
+    const bubble = $('viewerPageBubble');
+    if (bubble) bubble.classList.remove('is-visible');
+}
+
+function viewerImageSrc(img) {
+    if (!img) return '';
+    if (img.id) return paImg('/image-thumb/' + img.id);
+    return img.path ? paImg('/image/' + encodeURI(img.path)) : '';
+}
+
+function formatViewerTime(value) {
+    if (!value) return '未知';
+    const text = String(value);
+    if (/^\d+$/.test(text)) {
+        const ms = text.length > 10 ? Number(text) / 1e6 : Number(text) * 1000;
+        const d = new Date(ms);
+        if (!isNaN(d.getTime())) return d.toLocaleString([], { hour12: false });
     }
+    const d = new Date(text.replace(' ', 'T'));
+    return isNaN(d.getTime()) ? text : d.toLocaleString([], { hour12: false });
+}
+
+function updateViewerImageMeta(img) {
+    const box = $('vImageMeta');
+    if (!box || !img) return;
+    box.innerHTML = `
+        <div>本地创建时间：<span>${formatViewerTime(img.file_created_at || img.file_ctime || '')}</span></div>
+        <div>上次修改时间：<span>${formatViewerTime(img.file_modified_at || img.file_mtime || '')}</span></div>
+        <div>本地存储位置：<span title="${escapeAttr(img.path || '')}">${escapeHtml(img.path || '未知')}</span></div>`;
 }
 
 function viewerNav(delta) {
     if (!_viewer.data) return;
     const total = _viewer.data.images.length;
     const next = _viewer.idx + delta;
-    if (next < 0 || next >= total) return;
+    if (next < 0) {
+        viewerArtworkNav(-1);
+        return;
+    }
+    if (next >= total) {
+        viewerArtworkNav(1);
+        return;
+    }
     _viewer.idx = next;
     renderViewerImage();
+}
+
+async function jumpToArtworkAtEdge(delta) {
+    if (!_navItems.length && !_navIds.length) return false;
+    let idx = _navIndex + delta;
+    if (idx < 0) {
+        const loaded = await loadAdjacentNavPage(-1);
+        if (!loaded) return false;
+        idx = _navIndex + delta;
+    } else if (idx >= _navIds.length) {
+        const loaded = await loadAdjacentNavPage(1);
+        if (!loaded) return false;
+        idx = _navIndex + delta;
+    }
+    if (idx < 0 || idx >= _navIds.length) return false;
+    _navIndex = idx;
+    const item = _navItems[idx] || { id: _navIds[idx], page: 1, pageCount: 1 };
+    const data = await fetchViewerDetail(item.id);
+    if (data.error) return false;
+    const pages = data.images || [];
+    const initialPage = 1;
+    const initialIdx = Math.max(0, pages.findIndex(img => String(img.page || 1) === String(initialPage)));
+    await openViewerWithData(data, initialIdx >= 0 ? initialIdx : 0);
+    return true;
 }
 
 function openViewerFromAuthor(authorId, workIndex) {
     const ids = _authorWorksIds[authorId] || [];
     if (!ids.length) return;
     _navIds = ids;
-    _navItems = ids.map(id => ({ id, page: 1 }));
+    _navItems = ids.map(id => ({ id, page: 1, pageCount: 1 }));
     _navIndex = workIndex;
     _navCtx = { type: 'author', q: '', tag: '', author: '', sort: 'id', order: 'desc', page: 1 };
     showViewer(ids[workIndex]);
@@ -1456,28 +2831,17 @@ function updateArtNav() {
     const hasPrev = _navIndex > 0;
     const hasNext = _navIndex >= 0 && _navIndex < _navIds.length - 1;
     const artNavVisible = _navIds.length > 1;
-    $('vPrevArt').style.display = (artNavVisible && hasPrev) ? '' : 'none';
-    $('vNextArt').style.display = (artNavVisible && hasNext) ? '' : 'none';
+    $('vNav').style.display = artNavVisible ? 'flex' : 'none';
+    $('vPrev').disabled = !hasPrev;
+    $('vNext').disabled = !hasNext;
+    $('vPrev').title = hasPrev ? '上一个作品' : '没有上一个作品';
+    $('vNext').title = hasNext ? '下一个作品' : '没有下一个作品';
+    $('vPageIndicator').textContent = artNavVisible ? `作品 ${_navIndex + 1} / ${_navIds.length}` : '';
 }
 
 async function viewerArtworkNav(delta) {
     if (!_navItems.length && !_navIds.length) return;
-    let idx = _navIndex + delta;
-
-    if (idx < 0) {
-        const loaded = await loadAdjacentNavPage(-1);
-        if (!loaded) return;
-        idx = _navIndex + delta;
-    } else if (idx >= _navIds.length) {
-        const loaded = await loadAdjacentNavPage(1);
-        if (!loaded) return;
-        idx = _navIndex + delta;
-    }
-
-    if (idx < 0 || idx >= _navIds.length) return;
-    _navIndex = idx;
-    const item = _navItems[idx] || { id: _navIds[idx], page: 1 };
-    showViewer(item.id, item.page);
+    await jumpToArtworkAtEdge(delta);
 }
 
 async function loadAdjacentNavPage(direction) {
@@ -1488,7 +2852,7 @@ async function loadAdjacentNavPage(direction) {
         const resp = await fetch(url);
         const data = await resp.json();
         const ids = (data.artworks || []).map(a => a.id);
-        const items = (data.artworks || []).map(a => ({ id: a.id, page: a.image_page || 1 }));
+        const items = (data.artworks || []).map(a => ({ id: a.id, page: 1, pageCount: a.page_count || 1 }));
         if (!ids.length) return false;
         if (direction > 0) {
             _navIds = _navIds.concat(ids);
@@ -1500,6 +2864,10 @@ async function loadAdjacentNavPage(direction) {
         }
         _navCtx.page = nextPage;
         currentPage = nextPage;
+        const edgeItem = direction > 0 ? items[0] : items[items.length - 1];
+        if (edgeItem) {
+            preloadViewerDetail(edgeItem.id, 'first');
+        }
         return true;
     } catch (e) {
         showToast('加载失败');
@@ -1509,10 +2877,13 @@ async function loadAdjacentNavPage(direction) {
 
 function hideViewer() {
     resetViewerZoom();
+    hideViewerPageBubble();
     hideCtxMenu();
     $('viewerOverlay').classList.add('hidden');
     document.body.style.overflow = '';
     _viewer = { data: null, idx: 0 };
+    $('vMainImage').onerror = null;
+    $('vMainImage').removeAttribute('data-original-src');
     $('vMainImage').src = '';
 }
 
@@ -1571,10 +2942,10 @@ async function openInFolder() {
 document.addEventListener('keydown', function (e) {
     if (!$('viewerOverlay').classList.contains('hidden')) {
         if (e.key === 'Escape') { hideViewer(); }
-        else if (e.key === 'ArrowLeft') { viewerArtworkNav(-1); }
-        else if (e.key === 'ArrowRight') { viewerArtworkNav(1); }
-        else if (e.key === 'ArrowUp') { viewerNav(-1); }
-        else if (e.key === 'ArrowDown') { viewerNav(1); }
+        else if (e.key === 'ArrowLeft') { viewerNav(-1); }
+        else if (e.key === 'ArrowRight') { viewerNav(1); }
+        else if (e.key === 'ArrowUp') { viewerArtworkNav(-1); }
+        else if (e.key === 'ArrowDown') { viewerArtworkNav(1); }
     }
 });
 
@@ -1582,10 +2953,14 @@ document.addEventListener('keydown', function (e) {
 let _jobPollTimer = null;
 let _jobCloseTimer = null;
 let _currentJobId = null;
+let _currentJobPaused = false;
 let _watchPollTimer = null;
 let _lastSeenAutoJobId = '';
 let _eventsSource = null;
 let _eventsFallbackTimer = null;
+let _sseReleaseTimer = null;
+let _sseResourcesReleased = false;
+let _sseReleaseDelaySeconds = 60;
 try {
     _lastSeenAutoJobId = localStorage.getItem('pa-last-auto-job-id') || '';
 } catch (e) {}
@@ -1609,47 +2984,88 @@ function hideJobWindow() {
     $('jobWindow').classList.add('hidden');
 }
 
-function jobKindLabel(kind) {
-    if (kind === 'scan') return '扫描图片';
-    if (kind === 'auto_scan') return '自动扫描';
-    if (kind === 'bookmark_check') return '收藏订阅更新';
-    return '同步元数据';
+function showLiveJobPanel() {
+    $('liveJobPanel').classList.remove('hidden');
 }
 
-function startJob(kind) {
-    let reqUrl = kind === 'scan' ? '/api/scan' : '/api/sync';
+function hideLiveJobPanel() {
+    $('liveJobPanel').classList.add('hidden');
+}
+
+function jobKindLabel(kind) {
+    if (kind === 'scan') return '增量扫描';
+    if (kind === 'scan_full') return '全量扫描';
+    if (kind === 'auto_scan') return '自动扫描';
+    if (kind === 'bookmark_check') return '收藏订阅更新';
+    if (kind === 'organize') return '整理文件';
+    if (kind === 'organize_undo') return '撤销整理';
+    if (kind === 'sync_full') return '重建元数据';
+    return '增量同步';
+}
+
+function startJob(kind, full) {
+    let reqUrl = kind === 'scan' ? (full ? '/api/scan/full' : '/api/scan') : (full ? '/api/sync/full' : '/api/sync');
     if (kind === 'bookmark_check') {
         reqUrl = '/api/bookmark-subs/check';
     }
-    launchJob(reqUrl, kind);
+    if (full && (kind === 'scan' || kind === 'sync')) {
+        setFullTaskButtonsBusy(true);
+    }
+    launchJob(reqUrl, full ? kind + '_full' : kind);
+}
+
+function setFullTaskButtonsBusy(busy) {
+    [$('btnFullScan'), $('btnRebuildMetadata')].filter(Boolean).forEach(button => {
+        button.disabled = !!busy;
+        button.classList.toggle('is-busy', !!busy);
+    });
+}
+
+function refreshGalleryWarmCacheAfterChange() {
+    if (currentView !== 'gallery' || _galleryLoading) return;
+    loadGallery(1, { silent: true });
 }
 
 // 通用任务启动：任意 URL/方法触发后台任务并接入进度窗轮询
-function launchJob(reqUrl, kind, method) {
+function launchJob(reqUrl, kind, method, body) {
     clearTimeout(_jobCloseTimer);
     clearTimeout(_jobPollTimer);
     setFabBusy(true);
-    $('jobTitle').textContent = jobKindLabel(kind);
-    $('jobBody').style.display = 'block';
-    $('jobResult').style.display = 'none';
-    $('jobError').style.display = 'none';
-    $('jobPhase').textContent = '正在启动…';
-    $('jobPct').textContent = '';
-    $('jobBarFill').style.width = '0%';
-    showJobWindow();
+    _currentJobPaused = false;
+    _lastJobLogMessage = '';
+    appendOperationLog(jobKindLabel(kind) + '：正在启动');
+    const startFill = $('liveJobBarFill');
+    if (startFill) {
+        startFill.classList.remove('indeterminate');
+        startFill.style.width = '0%';
+        startFill.offsetHeight;
+    }
+    updateLiveJobPanel({ kind, status: 'running', paused: false, message: '正在启动…', current: 0, total: null });
 
-    fetch(reqUrl, { method: method || 'GET' })
+    const options = { method: method || 'GET' };
+    if (body) {
+        options.headers = { 'Content-Type': 'application/json' };
+        options.body = JSON.stringify(body);
+    }
+    fetch(reqUrl, options)
         .then(r => r.json())
         .then(d => {
             if (d && d.job_id) {
                 _currentJobId = d.job_id;
+                if (kind === 'scan_full' || kind === 'sync_full') {
+                    closeSettings();
+                    switchView('gallery');
+                }
+                appendOperationLog(jobKindLabel(kind) + '：任务已开始');
                 pollJob(d.job_id);
             } else {
                 const err = (d && d.error) ? d.error : { message: '任务启动失败', code: 'UNKNOWN' };
+                if (kind === 'scan_full' || kind === 'sync_full') setFullTaskButtonsBusy(false);
                 showJobError(err);
             }
         })
         .catch(e => {
+            if (kind === 'scan_full' || kind === 'sync_full') setFullTaskButtonsBusy(false);
             showJobError({ code: 'CONN', message: '无法连接服务器：' + e.message,
                            hint: '请确认服务仍在运行' });
         });
@@ -1673,45 +3089,64 @@ function pollJob(jobId) {
 }
 
 function renderJobProgress(d) {
-    $('jobTitle').textContent = jobKindLabel(d.kind);
-    $('jobPhase').textContent = d.message || '处理中…';
-    const fill = $('jobBarFill');
-    if (d.total != null && d.total > 0) {
-        fill.classList.remove('indeterminate');
-        const pct = Math.min(100, Math.round(((d.current || 0) / d.total) * 100));
-        fill.style.width = pct + '%';
-        $('jobPct').textContent = `${d.current || 0} / ${d.total}`;
-    } else {
-        fill.classList.add('indeterminate');
-        fill.style.width = '40%';
-        $('jobPct').textContent = '';
+    _currentJobPaused = !!d.paused;
+    if (d.message && d.message !== _lastJobLogMessage) {
+        _lastJobLogMessage = d.message;
+        const line = jobKindLabel(d.kind) + '：' + d.message;
+        appendOperationLog(line);
+        if (d.kind === 'organize' || d.kind === 'organize_undo') appendOrganizeLog(line);
     }
+    updateLiveJobPanel(d);
 }
 
 function finishJob(d) {
     _currentJobId = null;
     setFabBusy(false);
+    setFullTaskButtonsBusy(false);
     if (d.status === 'error') {
         showJobError(d.error || { message: '任务执行出错', code: 'INTERNAL' });
         return;
     }
     if (d.status === 'cancelled') {
-        hideJobWindow();
-        showToast('任务已停止');
+        const summary = jobKindLabel(d.kind) + '：已停止';
+        appendOperationLog(summary);
+        if (d.kind === 'organize' || d.kind === 'organize_undo') appendOrganizeLog(summary);
+        hideLiveJobPanel();
         return;
     }
     renderJobResult(d);
-    if (d.kind === 'scan' || d.kind === 'auto_scan') {
+    if (d.kind === 'organize_undo') {
         const r = d.result || {};
-        if (r.new_artworks > 0 || r.pruned_artworks > 0) loadGallery(1);
-    } else if (d.kind === 'sync') {
-        loadGallery(1);
+        const status = $('organizeUndoStatus');
+        const button = $('undoOrganizeBtn');
+        if (status) {
+            status.textContent = r.status === 'success' ? '撤销成功' : (r.status === 'failed' ? '撤销失败' : '撤销已停止');
+            status.style.color = r.status === 'success' ? 'var(--success)' : 'var(--danger)';
+            status.style.display = 'inline-flex';
+        }
+        if (button) button.disabled = true;
+    }
+    const summary = summarizeJobResult(d) || (jobKindLabel(d.kind) + '：完成');
+    appendOperationLog(summary);
+    if (d.kind === 'organize' || d.kind === 'organize_undo') {
+        appendOrganizeLog(summary);
+    }
+    if (d.kind === 'scan' || d.kind === 'auto_scan' || d.kind === 'scan_full') {
+        const r = d.result || {};
+        if (r.new_artworks > 0 || r.new_images > 0 || r.pruned_artworks > 0 || r.pruned_images > 0) {
+            refreshGalleryWarmCacheAfterChange();
+        }
+    } else if (d.kind === 'sync' || d.kind === 'sync_full') {
+        refreshGalleryWarmCacheAfterChange();
         if ($('viewAuthors').classList.contains('active')) loadAuthorsView();
         if ($('viewTags').classList.contains('active')) loadTagsView();
     } else if (d.kind === 'bookmark_check') {
-        loadGallery(1);
+        refreshGalleryWarmCacheAfterChange();
         loadBookmarkSubsView();
+    } else if (d.kind === 'organize' || d.kind === 'organize_undo') {
+        refreshGalleryWarmCacheAfterChange();
     }
+    setTimeout(hideLiveJobPanel, 180);
     clearTimeout(_jobCloseTimer);
     _jobCloseTimer = setTimeout(hideJobWindow, 3500);
 }
@@ -1728,6 +3163,7 @@ function startWatchEvents() {
     _eventsSource.addEventListener('connected', function () {
         clearTimeout(_eventsFallbackTimer);
         clearTimeout(_watchPollTimer);
+        restoreFrontendDisplayResources();
     });
     _eventsSource.addEventListener('watch_scan_queued', function () {
         showToast('检测到新图片，稍后自动扫描');
@@ -1744,12 +3180,18 @@ function startWatchEvents() {
             if (currentView === 'gallery') loadGallery(1);
         }
     });
+    _eventsSource.addEventListener('metadata_batch_done', function (e) {
+        if (currentView !== 'gallery' || _galleryLoading) return;
+        clearTimeout(window._metadataGalleryRefreshTimer);
+        window._metadataGalleryRefreshTimer = setTimeout(() => loadGallery(1), 180);
+    });
     _eventsSource.addEventListener('auto_scan_failed', function () {
         showToast('自动扫描失败，请查看日志');
     });
     _eventsSource.onerror = function () {
         clearTimeout(_eventsFallbackTimer);
         _eventsFallbackTimer = setTimeout(startWatchStatusPolling, 5000);
+        scheduleSseResourceRelease();
     };
     startWatchStatusPolling();
 }
@@ -1766,24 +3208,22 @@ function handleAutoJobDone(jobId, r) {
     if (jobId && !rememberAutoJob(jobId)) return;
     if ((r.new_artworks || 0) || (r.new_images || 0) || (r.pruned_artworks || 0) || (r.pruned_images || 0) || (r.synced || 0)) {
         if (currentView === 'gallery') loadGallery(1);
-        clearTimeout(_jobCloseTimer);
-        $('jobBody').style.display = 'none';
-        $('jobError').style.display = 'none';
-        renderJobResult({ kind: 'auto_scan', result: r });
-        showJobWindow();
-        _jobCloseTimer = setTimeout(hideJobWindow, 5000);
+        appendOperationLog(summarizeJobResult({ kind: 'auto_scan', result: r }));
     }
 }
 
 function startWatchStatusPolling() {
     clearTimeout(_watchPollTimer);
+    if (_sseResourcesReleased) return;
     pollWatchStatus();
 }
 
 function pollWatchStatus() {
+    if (_sseResourcesReleased) return;
     fetch('/api/watch/status')
         .then(r => r.json())
         .then(d => {
+            if (_sseResourcesReleased) return;
             const job = d.last_auto_job;
             if (job && job.job_id && job.job_id !== _lastSeenAutoJobId && job.status !== 'running') {
                 if (job.status === 'done') {
@@ -1798,6 +3238,7 @@ function pollWatchStatus() {
             _watchPollTimer = setTimeout(pollWatchStatus, delay);
         })
         .catch(() => {
+            if (_sseResourcesReleased) return;
             _watchPollTimer = setTimeout(pollWatchStatus, 15000);
         });
 }
@@ -1805,7 +3246,7 @@ function pollWatchStatus() {
 function renderJobResult(d) {
     const r = d.result || {};
     let html = '';
-    if (d.kind === 'scan' || d.kind === 'auto_scan') {
+    if (d.kind === 'scan' || d.kind === 'auto_scan' || d.kind === 'scan_full') {
         html = `扫描完成<br>新作品 ${r.new_artworks || 0} · 新图片 ${r.new_images || 0} · 跳过 ${r.skipped || 0}`;
         if (r.duplicates || r.pruned_duplicates) {
             html += `<br>去重：本次跳过 ${r.duplicates || 0} · 清理存量重复 ${r.pruned_duplicates || 0}`;
@@ -1834,6 +3275,16 @@ function renderJobResult(d) {
         } else if (!r.cancelled) {
             html += `<div class="job-err-line">没有新增收藏，无需入库。</div>`;
         }
+    } else if (d.kind === 'organize' || d.kind === 'organize_undo') {
+        if (r.error) {
+            html = `${jobKindLabel(d.kind)}失败<br>${escapeHtml(r.error)}`;
+        } else {
+            html = `${jobKindLabel(d.kind)}完成<br>处理 ${r.done || 0} / ${r.total || 0} · 失败 ${r.failed || 0}`;
+            if (d.kind === 'organize_undo' && r.status) {
+                html += `<br>${r.status === 'success' ? '撤销校验成功' : (r.status === 'failed' ? '撤销校验失败' : '撤销已停止')} · 已确认 ${r.verified || 0} / ${r.total || 0}`;
+            }
+            if (r.cancelled) html += `<br>任务已中途停止`;
+        }
     } else {
         html = `同步完成<br>成功 ${r.synced || 0} · 已删除 ${r.deleted || 0} · 失败 ${r.failed || 0}`;
         const fails = (r.details || []).filter(x => x.status === 'failed').slice(0, 3);
@@ -1856,16 +3307,10 @@ function renderJobResult(d) {
 
 function showJobError(err) {
     setFabBusy(false);
-    $('jobTitle').textContent = '出错了';
-    $('jobBody').style.display = 'none';
-    $('jobResult').style.display = 'none';
-    $('jobError').style.display = 'block';
+    hideLiveJobPanel();
     const code = escapeHtml(err.code || 'ERROR');
     const message = escapeHtml(err.message || '未知错误');
-    const hint = err.hint ? `<div class="job-err-hint">${escapeHtml(err.hint)}</div>` : '';
-    const detail = err.detail ? `<details class="job-err-detail"><summary>详细信息</summary><pre>${escapeHtml(err.detail)}</pre></details>` : '';
-    $('jobError').innerHTML = `<div class="job-err-code">${code}</div><div>${message}</div>${hint}${detail}`;
-    showJobWindow();
+    appendOperationLog(`错误 ${code}：${message}${err.hint ? '；' + err.hint : ''}`);
 }
 
 function closeJobWindow() {
@@ -1876,17 +3321,202 @@ function closeJobWindow() {
         _currentJobId = null;
     }
     setFabBusy(false);
-    hideJobWindow();
+    hideLiveJobPanel();
+}
+
+function updateLiveJobPanel(d) {
+    const panel = $('liveJobPanel');
+    if (!panel || !d) return;
+    if (d.status !== 'running') {
+        panel.classList.add('hidden');
+        return;
+    }
+    showLiveJobPanel();
+    const current = Number(d.current);
+    const total = Number(d.total);
+    const progressLabel = Number.isFinite(total) && total > 0
+        ? `（${Math.max(0, current || 0)}/${total}）`
+        : '';
+    $('liveJobKind').textContent = jobKindLabel(d.kind) + progressLabel;
+    const fill = $('liveJobBarFill');
+    if (fill) {
+        fill.classList.remove('indeterminate');
+        fill.style.width = '0%';
+        fill.offsetHeight;
+        if (d.total != null && d.total > 0) {
+            const pct = Math.min(100, Math.round(((d.current || 0) / d.total) * 100));
+            fill.style.width = pct + '%';
+        } else {
+            fill.classList.add('indeterminate');
+            fill.style.width = '40%';
+        }
+    }
+    const pauseBtn = $('liveJobPauseBtn');
+    if (pauseBtn) {
+        pauseBtn.title = d.paused ? '继续任务' : '暂停任务';
+        const use = pauseBtn.querySelector('use');
+        if (use) use.setAttribute('href', d.paused ? '#i-play' : '#i-pause');
+    }
+    const cancelBtn = $('liveJobCancelBtn');
+    if (cancelBtn) {
+        cancelBtn.title = '取消任务';
+    }
+}
+
+function loadOperationLogs() {
+    try {
+        const raw = localStorage.getItem(OP_LOG_KEY);
+        _operationLogs = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+        _operationLogs = [];
+    }
+    if (!Array.isArray(_operationLogs)) _operationLogs = [];
+    _operationLogs = _operationLogs.slice(0, OP_LOG_LIMIT);
+}
+
+function saveOperationLogs() {
+    try { localStorage.setItem(OP_LOG_KEY, JSON.stringify(_operationLogs.slice(0, OP_LOG_LIMIT))); } catch (e) {}
+}
+
+function renderOperationLogs() {
+    const box = $('operationLogList');
+    if (!box) return;
+    if (!_operationLogs.length) {
+        box.innerHTML = '<div class="op-log-empty">暂无操作日志</div>';
+        return;
+    }
+    box.innerHTML = _operationLogs.map(item =>
+        `<div class="op-log-item"><span class="op-log-time">${escapeHtml(item.time)}</span><span class="op-log-text">${escapeHtml(item.text)}</span></div>`
+    ).join('');
+}
+
+function appendOperationLog(text) {
+    const content = String(text || '').trim();
+    if (!content) return;
+    _operationLogs.unshift({
+        time: new Date().toLocaleTimeString([], { hour12: false }),
+        text: content,
+    });
+    _operationLogs = _operationLogs.slice(0, OP_LOG_LIMIT);
+    saveOperationLogs();
+    renderOperationLogs();
+}
+
+function loadDuplicateLogs() {
+    try {
+        const raw = localStorage.getItem(DUP_LOG_KEY);
+        _duplicateLogs = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+        _duplicateLogs = [];
+    }
+    if (!Array.isArray(_duplicateLogs)) _duplicateLogs = [];
+    _duplicateLogs = _duplicateLogs.slice(0, OP_LOG_LIMIT);
+}
+
+function loadOrganizeLogs() {
+    try {
+        const raw = localStorage.getItem(ORG_LOG_KEY);
+        _organizeLogs = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+        _organizeLogs = [];
+    }
+    if (!Array.isArray(_organizeLogs)) _organizeLogs = [];
+    _organizeLogs = _organizeLogs.slice(0, OP_LOG_LIMIT);
+}
+
+function saveLocalLogs(key, items) {
+    try { localStorage.setItem(key, JSON.stringify((items || []).slice(0, OP_LOG_LIMIT))); } catch (e) {}
+}
+
+function renderDuplicateLogs() {
+    const box = $('duplicateLogList');
+    if (!box) return;
+    if (!_duplicateLogs.length) {
+        box.innerHTML = '<div class="op-log-empty">暂无去重日志</div>';
+        return;
+    }
+    box.innerHTML = _duplicateLogs.map(item =>
+        `<div class="op-log-item"><span class="op-log-time">${escapeHtml(item.time)}</span><span class="op-log-text">${escapeHtml(item.text)}</span></div>`
+    ).join('');
+}
+
+function appendDuplicateLog(text) {
+    const content = String(text || '').trim();
+    if (!content) return;
+    _duplicateLogs.unshift({ time: new Date().toLocaleTimeString([], { hour12: false }), text: content });
+    _duplicateLogs = _duplicateLogs.slice(0, OP_LOG_LIMIT);
+    saveLocalLogs(DUP_LOG_KEY, _duplicateLogs);
+    renderDuplicateLogs();
+}
+
+function renderOrganizeLogs() {
+    const box = $('organizeLogList');
+    if (!box) return;
+    if (!_organizeLogs.length) {
+        box.innerHTML = '<div class="op-log-empty">暂无整理日志</div>';
+        return;
+    }
+    box.innerHTML = _organizeLogs.map(item =>
+        `<div class="op-log-item"><span class="op-log-time">${escapeHtml(item.time)}</span><span class="op-log-text">${escapeHtml(item.text)}</span></div>`
+    ).join('');
+}
+
+function appendOrganizeLog(text) {
+    const content = String(text || '').trim();
+    if (!content) return;
+    _organizeLogs.unshift({ time: new Date().toLocaleTimeString([], { hour12: false }), text: content });
+    _organizeLogs = _organizeLogs.slice(0, OP_LOG_LIMIT);
+    saveLocalLogs(ORG_LOG_KEY, _organizeLogs);
+    renderOrganizeLogs();
+}
+
+function toggleDuplicateLogPanel(force) {
+    const panel = $('duplicateLogPanel');
+    if (!panel) return;
+    const show = typeof force === 'boolean' ? force : panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !show);
+    _duplicateLogVisible = show;
+    if (show) renderDuplicateLogs();
+}
+
+function updateOperationLogInline(text) {
+    appendOperationLog(text);
+}
+
+function summarizeJobResult(d) {
+    const r = d.result || {};
+    if (d.kind === 'scan' || d.kind === 'auto_scan' || d.kind === 'scan_full') {
+        return `${jobKindLabel(d.kind)}完成：新作品 ${r.new_artworks || 0}，新图片 ${r.new_images || 0}，跳过 ${r.skipped || 0}`;
+    }
+    if (d.kind === 'bookmark_check') {
+        return `收藏订阅完成：检查 ${r.checked || 0} 个，新增 ${r.new_found || 0}，下载 ${r.downloaded || 0}`;
+    }
+    if (d.kind === 'sync' || d.kind === 'sync_full') {
+        return `${jobKindLabel(d.kind)}完成：成功 ${r.synced || 0}，AI ${r.ai_detected || 0}，已删除 ${r.deleted || 0}，失败 ${r.failed || 0}`;
+    }
+    return '';
+}
+
+function toggleCurrentJobPause() {
+    if (!_currentJobId) return;
+    const action = _currentJobPaused ? 'resume' : 'pause';
+    fetch('/api/jobs/' + _currentJobId + '/' + action, { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if (d && d.status) {
+                renderJobProgress(d);
+            }
+        })
+        .catch(() => {});
+}
+
+function cancelCurrentJob() {
+    closeJobWindow();
 }
 
 // ===== Toast =====
-let _toastTimer = null;
 function showToast(msg) {
-    const t = $('toast');
-    t.textContent = msg;
-    t.classList.add('visible');
-    clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(() => t.classList.remove('visible'), 3500);
+    appendOperationLog(msg);
 }
 
 // ===== 通用确认弹窗（替代原生 confirm） =====
@@ -1908,8 +3538,9 @@ function doConfirmDialog() {
     if (cb) cb();
 }
 
-// ===== R18 显示模式 / 已删除快速筛选 / 设置分页 =====
+// ===== R18 / AI 显示模式 / 已删除快速筛选 / 设置分页 =====
 let _r18Mode = 'all';
+let _aiMode = 'all';
 let deletedFilter = false;
 
 function r18Param() {
@@ -1922,6 +3553,34 @@ function initR18() {
         if (v === 'hide' || v === 'only') _r18Mode = v;
     } catch (e) {}
     updateR18Btn();
+}
+
+function clearLog(type) {
+    const config = {
+        operation: [OP_LOG_KEY, () => { _operationLogs = []; renderOperationLogs(); }],
+        duplicate: [DUP_LOG_KEY, () => { _duplicateLogs = []; renderDuplicateLogs(); }],
+        organize: [ORG_LOG_KEY, () => { _organizeLogs = []; renderOrganizeLogs(); }],
+    }[type];
+    if (!config) return;
+    try { localStorage.removeItem(config[0]); } catch (e) {}
+    config[1]();
+}
+
+async function openJobLogs() {
+    await openSettings();
+    switchSettingsTab('logs');
+}
+
+function aiParam() {
+    return _aiMode === 'all' ? '' : _aiMode;
+}
+
+function initAI() {
+    try {
+        const v = localStorage.getItem('pa-ai');
+        if (v === 'hide' || v === 'only') _aiMode = v;
+    } catch (e) {}
+    updateAIBtn();
 }
 
 function cycleR18() {
@@ -1956,8 +3615,28 @@ function toggleDeletedFilter() {
 function switchSettingsTab(name) {
     if ($('secBasic')) $('secBasic').style.display = name === 'basic' ? '' : 'none';
     if ($('secNetwork')) $('secNetwork').style.display = name === 'network' ? '' : 'none';
+    if ($('secLogs')) $('secLogs').style.display = name === 'logs' ? '' : 'none';
+    if ($('settingsActions')) $('settingsActions').style.display = name === 'logs' ? 'none' : '';
+    if ($('settingsTools')) $('settingsTools').style.display = name === 'logs' ? 'none' : '';
     if ($('tabBasic')) $('tabBasic').classList.toggle('active', name === 'basic');
     if ($('tabNetwork')) $('tabNetwork').classList.toggle('active', name === 'network');
+    if ($('tabLogs')) $('tabLogs').classList.toggle('active', name === 'logs');
+}
+
+function cycleAI() {
+    _aiMode = ({ all: 'hide', hide: 'only', only: 'all' })[_aiMode] || 'all';
+    try { localStorage.setItem('pa-ai', _aiMode); } catch (e) {}
+    updateAIBtn();
+    if (currentView === 'authors') loadAuthorsView();
+    else if (currentView === 'tags') loadTagsView();
+    else if (currentView === 'favorites') loadFavoritesView();
+    else loadGallery(1);
+}
+
+function updateAIBtn() {
+    const labels = { all: 'AI：全部', hide: 'AI：隐藏', only: 'AI：仅AI' };
+    const btn = $('btnAI');
+    if (btn) btn.textContent = labels[_aiMode] || 'AI：全部';
 }
 
 // ===== Theme =====
@@ -2038,13 +3717,23 @@ function getSourceDirs() {
         .filter(Boolean);
 }
 
+function formatBookmarkSchedule(weekday, time) {
+    const names = ['每周一', '每周二', '每周三', '每周四', '每周五', '每周六', '每周日'];
+    const idx = Math.max(0, Math.min(parseInt(weekday, 10) || 0, 6));
+    return `${names[idx]} ${time || '03:30'} 北京时间`;
+}
+
 async function openSettings() {
     $('settingsOverlay').classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
     $('settingsMsg').style.display = 'none';
-    $('settingSafeMode').checked = document.documentElement.classList.contains('safe-mode');
-    try {
-        const resp = await fetch('/api/settings');
-        const data = await resp.json();
+        $('settingSafeMode').checked = document.documentElement.classList.contains('safe-mode');
+        renderOperationLogs();
+        renderDuplicateLogs();
+        renderOrganizeLogs();
+        try {
+            const resp = await fetch('/api/settings');
+            const data = await resp.json();
         $('tokenHint').textContent = data.has_token ? `当前: ${data.token_preview}` : '未设置';
         const sourceDirs = data.image_source_dirs && data.image_source_dirs.length
             ? data.image_source_dirs : (data.image_source_dir ? [data.image_source_dir] : ['']);
@@ -2053,6 +3742,7 @@ async function openSettings() {
             ? `当前: ${sourceDirs.filter(Boolean).length} 个目录`
             : '未设置';
         $('settingAutoWatch').checked = !!data.auto_watch_enabled;
+        $('settingSseReleaseDelay').value = data.sse_release_delay_seconds || 60;
         $('autoWatchHint').textContent = !data.auto_watch_available
             ? 'watchdog 未安装，安装依赖后才可启用'
             : (data.auto_watch_running ? '运行中：文件变化后会低频防抖自动扫描' : '关闭时需手动点击扫描图片');
@@ -2068,19 +3758,37 @@ async function openSettings() {
             ? `当前: 图片下载走 ${mirror}（仅影响收藏订阅下载与头像抓取；同步元数据不涉及图片）`
             : '关闭时使用 Pixiv 官方 i.pximg.net。部分镜像不支持无 Referer 图片或头像，会失败或自动回退';
         onMirrorToggleChange();
-        $('settingToken').value = '';
-        $('settingProxy').value = data.proxy || '';
-        $('settingSyncDelay').value = data.sync_delay_ms != null ? data.sync_delay_ms : '';
-        $('settingMode').value = data.connection_mode || 'auto';
-        $('settingPort').value = data.server_port || '';
-        $('settingAccessToken').value = data.access_token_auto ? '' : (data.access_token || '');
-    } catch (e) {
-        $('tokenHint').textContent = '无法加载';
+            $('settingToken').value = '';
+            $('settingProxy').value = data.proxy || '';
+            $('settingSyncDelay').value = data.sync_delay_ms != null ? data.sync_delay_ms : '';
+            $('settingMode').value = data.connection_mode || 'auto';
+            $('settingPort').value = data.server_port || '';
+            $('settingAccessToken').value = data.access_token_auto ? '' : (data.access_token || '');
+            $('settingShowFolderBtn').checked = data.show_folder_button !== false;
+            $('settingViewerAutoOriginal').checked = data.viewer_auto_original !== false;
+            $('settingSidebarHoverExpand').checked = data.sidebar_hover_expand !== false;
+            $('settingBookmarkAutoCheck').checked = !!data.bookmark_auto_check_enabled;
+            $('settingBookmarkAutoWeekday').value = String(data.bookmark_auto_check_weekday ?? 0);
+            $('settingBookmarkAutoTime').value = data.bookmark_auto_check_time || '03:30';
+            $('bookmarkAutoHint').textContent = data.bookmark_auto_check_enabled
+                ? `当前：${formatBookmarkSchedule(data.bookmark_auto_check_weekday, data.bookmark_auto_check_time)} 执行一次`
+                : '关闭后不会自动执行收藏订阅更新';
+            $('settingAutoFailPause').checked = data.auto_fail_pause_enabled !== false;
+            $('settingAutoFailPauseThreshold').value = data.auto_fail_pause_threshold || 10;
+            applyFolderButtonVisibility(data.show_folder_button !== false);
+            applyViewerAutoOriginal(data.viewer_auto_original !== false);
+            applySidebarHoverExpand(data.sidebar_hover_expand !== false);
+            try { localStorage.setItem('pa-show-folder-btn', data.show_folder_button !== false ? '1' : '0'); } catch (e) {}
+        } catch (e) {
+            $('tokenHint').textContent = '无法加载';
+        }
     }
-}
 
 function closeSettings() {
     $('settingsOverlay').classList.add('hidden');
+    if ($('viewerOverlay').classList.contains('hidden')) {
+        document.body.style.overflow = '';
+    }
 }
 
 function onMirrorToggleChange() {
@@ -2098,11 +3806,14 @@ async function refreshDirectIps() {
         const count = Object.keys(updated).length;
         if (count > 0) {
             hint.textContent = `已更新 ${count} 个 IP：` + Object.entries(updated).map(([k, v]) => `${k.replace('PIXIV_IP_', '')}=${v}`).join('，');
+            appendOperationLog(`刷新直连 IP：已更新 ${count} 个`);
         } else {
             hint.textContent = '未获取到新 IP（DoH 可能被网络阻断），可手动在 .env 中设置 PIXIV_IP_*';
+            appendOperationLog('刷新直连 IP：未获取到新地址');
         }
     } catch (e) {
         hint.textContent = '刷新失败：' + e.message;
+        appendOperationLog('刷新直连 IP：失败');
     }
 }
 
@@ -2116,6 +3827,15 @@ async function saveSettings() {
     const syncDelay = $('settingSyncDelay').value.trim();
     const imageMirror = $('settingMirrorToggle').checked ? $('settingImageMirror').value.trim() : '';
     const autoWatch = $('settingAutoWatch').checked;
+    const sseReleaseDelay = $('settingSseReleaseDelay').value.trim();
+    const showFolderBtn = $('settingShowFolderBtn').checked;
+    const viewerAutoOriginal = $('settingViewerAutoOriginal').checked;
+    const sidebarHoverExpand = $('settingSidebarHoverExpand').checked;
+    const bookmarkAutoCheck = $('settingBookmarkAutoCheck').checked;
+    const bookmarkAutoWeekday = $('settingBookmarkAutoWeekday').value;
+    const bookmarkAutoTime = $('settingBookmarkAutoTime').value || '03:30';
+    const autoFailPause = $('settingAutoFailPause').checked;
+    const autoFailPauseThreshold = $('settingAutoFailPauseThreshold').value.trim();
     const msg = $('settingsMsg');
 
     const payload = {
@@ -2125,7 +3845,16 @@ async function saveSettings() {
         connection_mode: mode,
         sync_delay_ms: syncDelay,
         image_mirror: imageMirror,
-        auto_watch_enabled: autoWatch
+        auto_watch_enabled: autoWatch,
+        sse_release_delay_seconds: sseReleaseDelay,
+        show_folder_button: showFolderBtn,
+        viewer_auto_original: viewerAutoOriginal,
+        sidebar_hover_expand: sidebarHoverExpand,
+        bookmark_auto_check_enabled: bookmarkAutoCheck,
+        bookmark_auto_check_weekday: bookmarkAutoWeekday,
+        bookmark_auto_check_time: bookmarkAutoTime,
+        auto_fail_pause_enabled: autoFailPause,
+        auto_fail_pause_threshold: autoFailPauseThreshold
     };
     if (port) payload.server_port = port;
     payload.access_token = accessToken;
@@ -2147,6 +3876,14 @@ async function saveSettings() {
             msg.style.display = 'block';
             msg.textContent = '保存成功' + (port ? '（端口修改需重启服务生效）' : '');
             msg.style.color = '#4caf50';
+            applyFolderButtonVisibility(showFolderBtn);
+            applyViewerAutoOriginal(viewerAutoOriginal);
+            applySidebarHoverExpand(sidebarHoverExpand);
+            try { localStorage.setItem('pa-show-folder-btn', showFolderBtn ? '1' : '0'); } catch (e) {}
+            $('bookmarkAutoHint').textContent = bookmarkAutoCheck
+                ? `当前：${formatBookmarkSchedule(bookmarkAutoWeekday, bookmarkAutoTime)} 执行一次`
+                : '关闭后不会自动执行收藏订阅更新';
+            appendOperationLog('设置已保存');
             setTimeout(closeSettings, 1200);
         }
     } catch (e) {
@@ -2252,13 +3989,15 @@ document.addEventListener('contextmenu', function (e) {
 
     if (!document.getElementById('viewerOverlay').classList.contains('hidden')) {
         const items = [
-            { label: '在文件夹中打开', action: function () { openInFolder(); } },
             { label: '收藏', action: function () { openFavSelect(window._viewerArtworkId); } },
             { label: '删除作品', danger: true, action: function () { deleteCurrent(); } },
         ];
-        const prev = $('vPrevArt'), next = $('vNextArt');
-        if (prev && prev.style.display !== 'none') items.unshift({ label: '上一作品', action: function () { viewerArtworkNav(-1); } });
-        if (next && next.style.display !== 'none') items.push({ label: '下一作品', action: function () { viewerArtworkNav(1); } });
+        if (_showFolderBtn) {
+            items.unshift({ label: '在文件夹中打开', action: function () { openInFolder(); } });
+        }
+        const prev = $('vPrev'), next = $('vNext');
+        if (prev && !prev.disabled) items.unshift({ label: '上一作品', action: function () { viewerArtworkNav(-1); } });
+        if (next && !next.disabled) items.push({ label: '下一作品', action: function () { viewerArtworkNav(1); } });
         items.push({ label: '关闭查看器', action: function () { hideViewer(); } });
         showCtxMenu(e.clientX, e.clientY, items);
         return;
@@ -2277,6 +4016,24 @@ document.addEventListener('click', function (e) {
     if (!(e.target.closest && e.target.closest('.sort-widget'))) {
         const sm = $('sortMenu');
         if (sm) sm.classList.add('hidden');
+    }
+    if (!(e.target.closest && e.target.closest('#organizeModeWrap'))) {
+        const menu = $('organizeModeMenu');
+        const button = $('organizeModeButton');
+        if (menu) menu.classList.add('hidden');
+        if (button) button.setAttribute('aria-expanded', 'false');
+    }
+    if (!(e.target.closest && e.target.closest('#organizePathRuleWrap'))) {
+        const menu = $('organizePathRuleMenu');
+        const button = $('organizePathRuleButton');
+        if (menu) menu.classList.add('hidden');
+        if (button) button.setAttribute('aria-expanded', 'false');
+    }
+    if (!(e.target.closest && e.target.closest('#organizeRenameRuleWrap'))) {
+        const menu = $('organizeRenameRuleMenu');
+        const button = $('organizeRenameRuleButton');
+        if (menu) menu.classList.add('hidden');
+        if (button) button.setAttribute('aria-expanded', 'false');
     }
 });
 document.addEventListener('keydown', function (e) {
@@ -2299,7 +4056,10 @@ document.addEventListener('keydown', function (e) {
     }
 });
 window.addEventListener('scroll', function () { hideCtxMenu(); }, true);
+window.addEventListener('scroll', maybeLoadMoreGallery, { passive: true });
 window.addEventListener('resize', function () { hideCtxMenu(); });
+window.addEventListener('resize', maybeLoadMoreGallery, { passive: true });
+window.addEventListener('resize', scheduleGalleryGroupLayout);
 
 // 查看器滚轮缩放（双击还原）
 (function () {
@@ -2358,10 +4118,18 @@ $('searchInput').addEventListener('keydown', function (e) {
 
 updateThemeBtn();
 updateSidebarToggle();
+updateViewerSidebarToggle();
 updateSafeBadge();
+applyFolderButtonVisibility();
 initR18();
+initAI();
 updateSortBtn();
 updateExpandPagesButton();
+initGalleryResizeObserver();
+loadOperationLogs();
+loadDuplicateLogs();
+loadOrganizeLogs();
+syncUiSettings();
 if (window.pywebview && window.pywebview.api) {
     const f = $('openExternalField');
     if (f) f.style.display = 'block';
@@ -2371,3 +4139,9 @@ startWatchEvents();
 </script>
 </body>
 </html>
+
+
+
+
+
+

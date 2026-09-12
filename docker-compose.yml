@@ -11,7 +11,8 @@ services:
       - "6814:6814"
     volumes:
       - ./data:/app/data
-      - "/vol6/1000/下载/Aria2下载/Shaft/R18/AI/(114706119):/app/data/images:ro"
+      # 去重删除、移动整理需要对源目录有写权限；若只想浏览，请在末尾加回 :ro。
+      - "/vol6/1000/下载/Aria2下载/Shaft/R18/AI/(114706119):/app/data/images"
     environment:
       TZ: Asia/Shanghai
       PA_HOST: 0.0.0.0
@@ -24,6 +25,17 @@ services:
       AUTO_WATCH_ENABLED: "1"
       AUTO_WATCH_DEBOUNCE_SECONDS: "30"
       AUTO_WATCH_POLLING: "0"
+      PA_SCAN_HASH_MODE: "off"
+      PA_SHOW_FOLDER_BTN: "1"
+      PA_VIEWER_AUTO_ORIGINAL: "1"
+      PA_SIDEBAR_HOVER_EXPAND: "1"
+      BOOKMARK_AUTO_CHECK_WEEKDAY: "0"
+      BOOKMARK_AUTO_CHECK_TIME: "03:30"
+      AUTO_FAIL_PAUSE_ENABLED: "1"
+      AUTO_FAIL_PAUSE_THRESHOLD: "10"
+      PA_SCAN_COMMIT_BATCH: "8"
+      PA_SYNC_BATCH_SIZE: "8"
+      PA_METADATA_COMPACT: "1"
       PIXIV_REFRESH_TOKEN: ""
       PIXIV_MODE: auto
       PIXIV_PROXY: ""
