@@ -717,17 +717,19 @@
 
 <!-- 文件夹浏览器弹窗 -->
 <div id="folderBrowserOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeFolderBrowser()">
-    <div class="settings-panel folder-browser-panel">
+    <div class="settings-panel" style="width:500px;max-width:94vw;max-height:70vh;display:flex;flex-direction:column;min-height:0;">
         <h3>浏览文件夹</h3>
-        <div class="folder-browser-path">
-            <input type="text" id="folderBrowserPath" placeholder="输入路径后按 Enter" onkeydown="if(event.key==='Enter')navigateFolderBrowser()">
-            <button type="button" class="top-btn settings-icon-btn" onclick="navigateFolderBrowser()" title="跳转"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
-            <button type="button" class="top-btn settings-icon-btn" onclick="refreshFolderBrowser()" title="刷新"><svg class="icon"><use href="#i-sync"/></svg></button>
+        <div class="settings-field" style="margin-bottom:12px;">
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" id="folderBrowserPath" placeholder="输入路径后按 Enter" onkeydown="if(event.key==='Enter')navigateFolderBrowser()" style="flex:1;min-width:0;">
+                <button type="button" class="top-btn settings-icon-btn" onclick="navigateFolderBrowser()" title="跳转"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+                <button type="button" class="top-btn settings-icon-btn" onclick="refreshFolderBrowser()" title="刷新"><svg class="icon"><use href="#i-sync"/></svg></button>
+            </div>
         </div>
-        <div class="folder-browser-entries" id="folderBrowserEntries">
-            <div class="folder-browser-status">正在加载...</div>
+        <div id="folderBrowserEntries" style="flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:4px 0;margin-bottom:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-soft);">
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px 12px;font-size:13px;color:var(--text-3);">正在加载...</div>
         </div>
-        <div class="folder-browser-actions">
+        <div class="settings-actions" style="margin-top:0;">
             <button type="button" onclick="selectFolderBrowser()" class="btn-primary">选择此文件夹</button>
             <button type="button" onclick="closeFolderBrowser()" class="btn-secondary">取消</button>
         </div>
@@ -886,34 +888,34 @@ function closeFolderBrowser() {
 async function loadFolderBrowser(path) {
     const entriesDiv = $('folderBrowserEntries');
     if (!entriesDiv) return;
-    entriesDiv.innerHTML = '<div class="folder-browser-status">正在加载...</div>';
+    entriesDiv.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px 12px;font-size:13px;color:var(--text-3);">正在加载...</div>';
     $('folderBrowserPath').value = path;
     try {
         const resp = await fetch('/api/browse-directory?path=' + encodeURIComponent(path));
         const data = await resp.json();
         if (!data.accessible) {
-            entriesDiv.innerHTML = '<div class="folder-browser-status">' + escapeHtml(data.error || '无法访问') + '</div>';
+            entriesDiv.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px 12px;font-size:13px;color:var(--text-3);">' + escapeHtml(data.error || '无法访问') + '</div>';
             return;
         }
         let html = '';
         if (data.parent != null) {
-            html += '<button type="button" class="folder-browser-entry is-parent" data-path="' + escapeAttr(data.parent) + '"><svg class="icon"><use href="#i-chevron-left"/></svg> ..</button>';
+            html += '<button type="button" data-path="' + escapeAttr(data.parent) + '" style="display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:13px;color:var(--text-2);font-style:italic;cursor:pointer;border:none;background:transparent;text-align:left;width:100%;border-radius:0;transition:background 0.1s ease;" onmouseenter="this.style.background=\'var(--surface-2)\'" onmouseleave="this.style.background=\'transparent\'"><svg class="icon"><use href="#i-chevron-left"/></svg> ..</button>';
         }
         for (const entry of (data.entries || [])) {
             const fullPath = data.path.replace(/[\/\\]?$/, '') + '/' + entry;
-            html += '<button type="button" class="folder-browser-entry" data-path="' + escapeAttr(fullPath) + '"><svg class="icon"><use href="#i-folder"/></svg> ' + escapeHtml(entry) + '</button>';
+            html += '<button type="button" data-path="' + escapeAttr(fullPath) + '" style="display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:13px;color:var(--text);cursor:pointer;border:none;background:transparent;text-align:left;width:100%;border-radius:0;transition:background 0.1s ease;" onmouseenter="this.style.background=\'var(--surface-2)\'" onmouseleave="this.style.background=\'transparent\'"><svg class="icon" style="flex:none;color:var(--accent);"><use href="#i-folder"/></svg> ' + escapeHtml(entry) + '</button>';
         }
         if (!html) {
-            html = '<div class="folder-browser-status">此目录下没有子文件夹</div>';
+            html = '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px 12px;font-size:13px;color:var(--text-3);">此目录下没有子文件夹</div>';
         }
         entriesDiv.innerHTML = html;
     } catch (e) {
-        entriesDiv.innerHTML = '<div class="folder-browser-status">加载失败: ' + escapeHtml(e.message) + '</div>';
+        entriesDiv.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px 12px;font-size:13px;color:var(--text-3);">加载失败: ' + escapeHtml(e.message) + '</div>';
     }
 }
 
 document.addEventListener('click', function (event) {
-    const entry = event.target.closest && event.target.closest('#folderBrowserEntries .folder-browser-entry');
+    const entry = event.target.closest && event.target.closest('#folderBrowserEntries button[data-path]');
     if (!entry) return;
     const path = entry.getAttribute('data-path');
     if (path) loadFolderBrowser(path);
