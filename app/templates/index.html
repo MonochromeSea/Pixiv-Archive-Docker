@@ -24,7 +24,7 @@
     </script>
     <script src="/static/js/pa_token.js?v=20260908-auth2"></script>
     <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260909-settings-scroll2">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260917-settings-scroll3">
 </head>
 <body>
 
@@ -225,7 +225,10 @@
             </div>
             <div class="settings-field">
                 <label for="organizeOutputDir">输出文件夹</label>
-                <input type="text" id="organizeOutputDir" placeholder="例如 /app/data/organized">
+                <div class="source-dir-row">
+                    <input type="text" id="organizeOutputDir" placeholder="例如 /app/data/organized">
+                    <button type="button" class="top-btn settings-icon-btn" onclick="openFolderBrowser($('organizeOutputDir'))" title="浏览文件夹" aria-label="浏览文件夹"><svg class="icon"><use href="#i-folder-open"/></svg></button>
+                </div>
             </div>
             <div class="settings-field">
                 <label for="organizePathRule">整理路径</label>
@@ -528,12 +531,13 @@
             <button type="button" class="settings-tab active" id="tabBasic" onclick="switchSettingsTab('basic')">基础设置</button>
             <button type="button" class="settings-tab" id="tabNetwork" onclick="switchSettingsTab('network')">网络设置</button>
             <button type="button" class="settings-tab" id="tabLogs" onclick="switchSettingsTab('logs')">操作日志</button>
-            <a class="settings-github" href="https://github.com/Tumber-ZM/Pixiv-Archive" target="_blank" rel="noopener noreferrer" title="GitHub 仓库">
+            <a class="settings-github" href="https://github.com/MonochromeSea/Pixiv-Archive-Docker/tree/Fin-Docker" target="_blank" rel="noopener noreferrer" title="GitHub 仓库">
                 <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
                     <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
                 </svg>
             </a>
         </div>
+        <div class="settings-scroll-area">
         <div class="settings-section" id="secBasic">
             <div class="settings-field">
                 <label for="settingToken">Pixiv Refresh Token</label>
@@ -545,6 +549,9 @@
                 <div class="source-dir-list" id="sourceDirList">
                     <div class="source-dir-row">
                         <input type="text" id="settingDir" placeholder="例如 D:\Pixiv">
+                        <button type="button" class="top-btn settings-icon-btn" onclick="openFolderBrowser($('settingDir'))" title="浏览文件夹" aria-label="浏览文件夹">
+                            <svg class="icon"><use href="#i-folder-open"/></svg>
+                        </button>
                         <button type="button" class="top-btn settings-icon-btn source-dir-action" onclick="addSourceDirInput()" title="新增图片目录" aria-label="新增图片目录">
                             <svg class="icon"><use href="#i-plus"/></svg>
                         </button>
@@ -699,10 +706,30 @@
                 <div class="settings-log-list" id="operationLogList"></div>
             </div>
         </div>
+        </div>
         <div id="settingsMsg" class="settings-msg" style="display:none;"></div>
         <div class="settings-actions" id="settingsActions">
             <button onclick="saveSettings()" class="btn-primary">保存</button>
             <button onclick="closeSettings()" class="btn-secondary">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- 文件夹浏览器弹窗 -->
+<div id="folderBrowserOverlay" class="settings-overlay hidden" onclick="if(event.target===this)closeFolderBrowser()">
+    <div class="settings-panel folder-browser-panel">
+        <h3>浏览文件夹</h3>
+        <div class="folder-browser-path">
+            <input type="text" id="folderBrowserPath" placeholder="输入路径后按 Enter" onkeydown="if(event.key==='Enter')navigateFolderBrowser()">
+            <button type="button" class="top-btn settings-icon-btn" onclick="navigateFolderBrowser()" title="跳转"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+            <button type="button" class="top-btn settings-icon-btn" onclick="refreshFolderBrowser()" title="刷新"><svg class="icon"><use href="#i-sync"/></svg></button>
+        </div>
+        <div class="folder-browser-entries" id="folderBrowserEntries">
+            <div class="folder-browser-status">正在加载...</div>
+        </div>
+        <div class="folder-browser-actions">
+            <button type="button" onclick="selectFolderBrowser()" class="btn-primary">选择此文件夹</button>
+            <button type="button" onclick="closeFolderBrowser()" class="btn-secondary">取消</button>
         </div>
     </div>
 </div>
@@ -838,6 +865,83 @@ async function syncUiSettings() {
         _sseReleaseDelaySeconds = Number(data.sse_release_delay_seconds) || 60;
         try { localStorage.setItem('pa-show-folder-btn', data.show_folder_button !== false ? '1' : '0'); } catch (e) {}
     } catch (e) {}
+}
+
+// ===== 文件夹浏览器 =====
+let _fbTargetInput = null;
+
+function openFolderBrowser(inputEl) {
+    _fbTargetInput = inputEl;
+    $('folderBrowserOverlay').classList.remove('hidden');
+    const start = (inputEl && inputEl.value.trim()) || '/';
+    loadFolderBrowser(start);
+}
+
+function closeFolderBrowser() {
+    const overlay = $('folderBrowserOverlay');
+    if (overlay) overlay.classList.add('hidden');
+    _fbTargetInput = null;
+}
+
+async function loadFolderBrowser(path) {
+    const entriesDiv = $('folderBrowserEntries');
+    if (!entriesDiv) return;
+    entriesDiv.innerHTML = '<div class="folder-browser-status">正在加载...</div>';
+    $('folderBrowserPath').value = path;
+    try {
+        const resp = await fetch('/api/browse-directory?path=' + encodeURIComponent(path));
+        const data = await resp.json();
+        if (!data.accessible) {
+            entriesDiv.innerHTML = '<div class="folder-browser-status">' + escapeHtml(data.error || '无法访问') + '</div>';
+            return;
+        }
+        let html = '';
+        if (data.parent != null) {
+            html += '<button type="button" class="folder-browser-entry is-parent" data-path="' + escapeAttr(data.parent) + '"><svg class="icon"><use href="#i-chevron-left"/></svg> ..</button>';
+        }
+        for (const entry of (data.entries || [])) {
+            const fullPath = data.path.replace(/[\/\\]?$/, '') + '/' + entry;
+            html += '<button type="button" class="folder-browser-entry" data-path="' + escapeAttr(fullPath) + '"><svg class="icon"><use href="#i-folder"/></svg> ' + escapeHtml(entry) + '</button>';
+        }
+        if (!html) {
+            html = '<div class="folder-browser-status">此目录下没有子文件夹</div>';
+        }
+        entriesDiv.innerHTML = html;
+    } catch (e) {
+        entriesDiv.innerHTML = '<div class="folder-browser-status">加载失败: ' + escapeHtml(e.message) + '</div>';
+    }
+}
+
+document.addEventListener('click', function (event) {
+    const entry = event.target.closest && event.target.closest('#folderBrowserEntries .folder-browser-entry');
+    if (!entry) return;
+    const path = entry.getAttribute('data-path');
+    if (path) loadFolderBrowser(path);
+});
+
+document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    const overlay = $('folderBrowserOverlay');
+    if (overlay && !overlay.classList.contains('hidden')) {
+        event.stopPropagation();
+        closeFolderBrowser();
+    }
+});
+
+function navigateFolderBrowser() {
+    const path = $('folderBrowserPath').value.trim() || '/';
+    loadFolderBrowser(path);
+}
+
+function refreshFolderBrowser() { navigateFolderBrowser(); }
+
+function selectFolderBrowser() {
+    const path = $('folderBrowserPath').value.trim();
+    if (_fbTargetInput && path) {
+        _fbTargetInput.value = path;
+        _fbTargetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    closeFolderBrowser();
 }
 
 function toggleSidebar() {
@@ -2099,6 +2203,7 @@ function renderOrganizeSourceDirs(dirs) {
         const row = document.createElement('div');
         row.className = 'source-dir-row';
         row.innerHTML = `<input type="text" placeholder="例如 /app/data/images" value="${escapeAttr(value)}">
+            <button type="button" class="top-btn settings-icon-btn" onclick="openFolderBrowser(this.previousElementSibling)" title="浏览文件夹" aria-label="浏览文件夹"><svg class="icon"><use href="#i-folder-open"/></svg></button>
             ${idx === 0
                 ? '<button type="button" class="top-btn settings-icon-btn source-dir-action" onclick="addOrganizeSourceDirInput()" title="新增源文件夹" aria-label="新增源文件夹"><svg class="icon"><use href="#i-plus"/></svg></button>'
                 : '<button type="button" class="top-btn settings-icon-btn source-dir-action danger" onclick="removeOrganizeSourceDirInput(this)" title="移除此源文件夹" aria-label="移除此源文件夹"><svg class="icon"><use href="#i-x"/></svg></button>'}`;
@@ -3690,6 +3795,7 @@ function renderSourceDirs(dirs) {
         row.className = 'source-dir-row';
         row.innerHTML = `
             <input type="text" ${idx === 0 ? 'id="settingDir"' : ''} placeholder="例如 D:\\Pixiv" value="${escapeAttr(value)}">
+            <button type="button" class="top-btn settings-icon-btn" onclick="openFolderBrowser(this.previousElementSibling)" title="浏览文件夹" aria-label="浏览文件夹"><svg class="icon"><use href="#i-folder-open"/></svg></button>
             ${idx === 0
                 ? '<button type="button" class="top-btn settings-icon-btn source-dir-action" onclick="addSourceDirInput()" title="新增图片目录" aria-label="新增图片目录"><svg class="icon"><use href="#i-plus"/></svg></button>'
                 : '<button type="button" class="top-btn settings-icon-btn source-dir-action danger" onclick="removeSourceDirInput(this)" title="移除此目录" aria-label="移除此目录"><svg class="icon"><use href="#i-x"/></svg></button>'}`;

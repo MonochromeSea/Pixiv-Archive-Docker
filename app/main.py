@@ -2303,12 +2303,49 @@ def api_refresh_ips():
     return {"status": "ok", "updated": updated}
 
 
+@app.get("/api/browse-directory")
+def api_browse_directory(path: str = ""):
+    """List subdirectories for the folder browser popup."""
+    import stat as _stat
+    if not path:
+        path = "/"
+    try:
+        abs_path = os.path.abspath(path)
+        entries = []
+        for entry in os.scandir(abs_path):
+            try:
+                if entry.is_dir(follow_symlinks=True) and not entry.name.startswith("."):
+                    entries.append(entry.name)
+            except OSError:
+                pass
+        entries.sort(key=lambda x: x.lower())
+        parent = os.path.dirname(abs_path) if abs_path != "/" else None
+        if parent and parent == abs_path:
+            parent = None
+        return {
+            "path": abs_path,
+            "parent": parent,
+            "entries": entries,
+            "accessible": True,
+        }
+    except PermissionError:
+        return {"path": path, "parent": None, "entries": [], "accessible": False, "error": "权限不足，无法读取此目录"}
+    except FileNotFoundError:
+        return {"path": path, "parent": None, "entries": [], "accessible": False, "error": "目录不存在"}
+    except Exception as e:
+        return {"path": path, "parent": None, "entries": [], "accessible": False, "error": str(e)}
+
+
 @app.get("/image/{filepath:path}")
 def serve_image(filepath: str):
     decoded = unquote(filepath)
     # 只允许读取已登记在库的作品图片，防止局域网模式下被利用读取任意本地文件
     if not _is_registered_image(decoded):
         return JSONResponse({"error": "Not found"}, status_code=404)
+    # 文件可能已被整理、移动或手动删除；不要让 FileResponse 抛出完整 traceback。
+    if not os.path.isfile(decoded):
+        log.debug("image request skipped because registered file is missing: %s", decoded)
+        return JSONResponse({"error": "File no longer exists"}, status_code=404)
     return FileResponse(decoded)
 
 

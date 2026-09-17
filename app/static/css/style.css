@@ -1494,6 +1494,23 @@ html.sb-collapsed .live-job .icon {
     animation: popIn 0.18s ease;
 }
 
+/* 设置主面板：占满可用高度，让中间区域单独滚动 */
+#settingsOverlay > .settings-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.settings-scroll-area {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
 .settings-panel h3 {
     margin-bottom: 16px;
     font-size: 16px;
@@ -1750,6 +1767,105 @@ html.sb-collapsed .live-job .icon {
 .settings-msg {
     margin-top: 12px;
     font-size: 13px;
+}
+
+/* ===== 文件夹浏览器弹窗 ===== */
+.folder-browser-panel {
+    width: 500px;
+    max-width: 94vw;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.folder-browser-path {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.folder-browser-path input {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+}
+
+.folder-browser-path input:focus {
+    border-color: var(--accent);
+}
+
+.folder-browser-entries {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 0;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-soft);
+}
+
+.folder-browser-entry {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    text-align: left;
+    width: 100%;
+    border-radius: 0;
+    transition: background 0.1s ease;
+}
+
+.folder-browser-entry:hover {
+    background: var(--surface-2);
+}
+
+.folder-browser-entry .icon {
+    flex: none;
+    color: var(--accent);
+}
+
+.folder-browser-entry.is-parent {
+    color: var(--text-2);
+    font-style: italic;
+}
+
+.folder-browser-entry.is-parent:hover {
+    color: var(--text);
+}
+
+.folder-browser-status {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px 12px;
+    font-size: 13px;
+    color: var(--text-3);
+}
+
+.folder-browser-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 /* ===== 收藏夹选择对话框 ===== */
