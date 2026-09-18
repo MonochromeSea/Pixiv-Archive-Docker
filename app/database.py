@@ -165,6 +165,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_artworks_pixiv_id ON artworks(pixiv_id);
         CREATE INDEX IF NOT EXISTS idx_artworks_author_id ON artworks(author_id);
         CREATE INDEX IF NOT EXISTS idx_artworks_title ON artworks(title);
+        CREATE INDEX IF NOT EXISTS idx_artworks_create_date_id ON artworks(create_date, id);
+        CREATE INDEX IF NOT EXISTS idx_artworks_first_seen_id ON artworks(first_seen, id);
+        CREATE INDEX IF NOT EXISTS idx_artworks_status ON artworks(pixiv_status);
+        CREATE INDEX IF NOT EXISTS idx_artworks_ai_type ON artworks(ai_type);
         CREATE INDEX IF NOT EXISTS idx_images_artwork_id ON images(artwork_id);
         CREATE INDEX IF NOT EXISTS idx_images_path ON images(path);
         CREATE INDEX IF NOT EXISTS idx_images_artwork_page ON images(artwork_id, page);
@@ -288,6 +292,7 @@ def _migrate_duplicate_tables(conn):
             FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_images_file_name_size ON images(file_name, file_size);
+        CREATE INDEX IF NOT EXISTS idx_images_artwork_page_id ON images(artwork_id, page, id);
         CREATE INDEX IF NOT EXISTS idx_duplicate_images_group ON duplicate_images(group_key);
         CREATE INDEX IF NOT EXISTS idx_duplicate_images_image ON duplicate_images(image_id);
         CREATE TABLE IF NOT EXISTS suspect_groups (

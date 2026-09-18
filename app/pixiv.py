@@ -1,5 +1,6 @@
 import os
 import re
+import logging
 import time
 import requests
 from urllib.parse import urlsplit
@@ -10,6 +11,8 @@ from app.direct_connect import enable_direct, DirectAdapter, refresh_ips
 from app.tag_rules import normalize_ai_type
 
 load_dotenv(paths.ENV_FILE)
+
+log = logging.getLogger("pixiv_archive.pixiv")
 
 REQUEST_TIMEOUT = 30
 
@@ -74,6 +77,44 @@ _AUTH_MSG_HINTS = (
     "invalid_grant", "401", "expired", "有効期限", "セッション",
 )
 
+# 传输层失败（IP 失效、握手被掐、超时）与 token 失效要分开处理：
+# 前者可以刷新直连地址后重试，后者只能让用户换 token。
+_TRANSPORT_HINTS = (
+    "ssleo", "unexpected_eof", "eof occurred", "eof", "timed out", "timeout",
+    "connection", "reset", "unreachable", "refused", "network", "handshake",
+)
+
+# These responses mean the request reached a proxy/CDN/edge but not the Pixiv
+# API. They are not evidence that the refresh token is invalid.
+_UPSTREAM_ROUTE_HINTS = (
+    "403", "forbidden", "nginx", "bad gateway", "gateway timeout",
+    "502", "503", "504", "cloudflare",
+)
+
+
+def _looks_like_transport_error(msg):
+    m = (msg or "").lower()
+    return any(k in m for k in _TRANSPORT_HINTS)
+
+
+def _looks_like_upstream_route_error(msg):
+    m = (msg or "").lower()
+    return any(k in m for k in _UPSTREAM_ROUTE_HINTS)
+
+
+def _looks_like_direct_retry_error(msg):
+    return _looks_like_transport_error(msg) or _looks_like_upstream_route_error(msg)
+
+
+def _looks_like_invalid_token_error(msg):
+    m = (msg or "").lower()
+    return (
+        "invalid_grant" in m
+        or "invalid refresh token" in m
+        or "refresh token expired" in m
+        or "token has expired" in m
+    )
+
 
 def _looks_like_auth_error(msg):
     m = (msg or "").lower()
@@ -90,19 +131,42 @@ def _fmt_error(err):
     return str(err)
 
 
-def _build_session():
+def _configured_proxy():
+    """返回 Pixiv 请求可用的代理地址。
+
+    优先使用显式的 PIXIV_PROXY；未设置时回退到容器常见的 HTTPS_PROXY /
+    HTTP_PROXY，保证「Clash 以环境变量注入」的部署方式仍然可用。
+    direct 模式不会调用本函数，因此直连不会被环境变量悄悄改道。
+    """
+    for key in ("PIXIV_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+        value = (os.getenv(key, "") or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _build_session(direct_sni=False):
     """Build a plain requests.Session (replaces cloudscraper for direct mode)."""
-    return _build_session_with_referer("https://app-api.pixiv.net/")
+    return _build_session_with_referer(
+        "https://app-api.pixiv.net/", direct_sni=direct_sni
+    )
 
 
-def _build_session_with_referer(referer, use_proxy=False):
+def _build_session_with_referer(referer, use_proxy=False, direct_sni=False):
     session = requests.Session()
-    proxy = (os.getenv("PIXIV_PROXY", "") or "").strip() if use_proxy else ""
+    # 只走这里显式选择的线路：direct 模式的请求不再被容器里的
+    # HTTP_PROXY/HTTPS_PROXY 悄悄改道；代理地址由 _configured_proxy() 统一解析。
+    session.trust_env = False
+    proxy = _configured_proxy() if use_proxy else ""
     if proxy:
         # 代理模式走标准 TLS（SNI + 完整证书校验）：DirectAdapter 的无 SNI 握手
         # 是给 IP 直连用的，经代理隧道时 Cloudflare 对无 SNI 连接会直接掐断
         # （SSLEOFError）。requests.Session 原生支持 proxies，无需挂自定义 adapter。
         session.proxies.update({"http": proxy, "https": proxy})
+    elif direct_sni:
+        # Standard TLS keeps SNI and certificate verification enabled while
+        # socket.getaddrinfo still maps Pixiv hostnames to the selected IP.
+        session.verify = True
     else:
         adapter = DirectAdapter()
         session.mount("https://", adapter)
@@ -146,32 +210,41 @@ def fetch_profile_image(url, timeout=REQUEST_TIMEOUT):
 class PixivClient:
     def __init__(self):
         self.mode = os.getenv("PIXIV_MODE", "auto").strip().lower()
-        self.proxy = os.getenv("PIXIV_PROXY", "")
+        self.proxy = _configured_proxy()
+        if self.mode == "proxy" and not self.proxy:
+            # 配置了 proxy 模式却没有可用代理时，退回 auto：
+            # 否则直连的 403/超时既不会走代理回退，也不会走直连自修复。
+            log.warning(
+                "PIXIV_MODE=proxy but no PIXIV_PROXY/HTTPS_PROXY is configured; "
+                "using automatic direct mode instead"
+            )
+            self.mode = "auto"
         self._last_auth = 0
         self._auth_ttl = 3000
+        self._auto_direct = False
         self._build_api()
 
-    def _build_api(self):
-        if self.mode == "direct":
+    def _new_api(self, use_proxy=False, direct_sni=False):
+        if not use_proxy:
             enable_direct()
-            self.api = AppPixivAPI()
-            self.api.requests = _build_session()
-            self.api.requests_kwargs = {"timeout": REQUEST_TIMEOUT}
-        elif self.mode == "proxy" and self.proxy:
+        api = AppPixivAPI()
+        api.requests = _build_session_with_referer(
+            "https://app-api.pixiv.net/",
+            use_proxy=use_proxy,
+            direct_sni=direct_sni,
+        )
+        api.requests_kwargs = {"timeout": REQUEST_TIMEOUT}
+        return api
+
+    def _build_api(self):
+        self._auto_direct = self.mode == "auto"
+        if self.mode == "proxy" and self.proxy:
             # 注意：不能用 AppPixivAPI(proxies=...) 再赋值 requests_kwargs——
             # 构造函数把 proxies 存进 requests_kwargs，后续整体赋值会把它覆盖丢失
-            self.api = AppPixivAPI()
-            self.api.requests = _build_session_with_referer(
-                "https://app-api.pixiv.net/", use_proxy=True
-            )
-            self.api.requests_kwargs = {"timeout": REQUEST_TIMEOUT}
+            self.api = self._new_api(use_proxy=True)
         else:
-            # auto: try direct first
-            enable_direct()
-            self.api = AppPixivAPI()
-            self.api.requests = _build_session()
-            self.api.requests_kwargs = {"timeout": REQUEST_TIMEOUT}
-            self._auto_direct = True
+            # direct、以及未配置代理的 auto/proxy，都先走直连。
+            self.api = self._new_api(direct_sni=False)
 
     def _ensure_auth(self):
         refresh_token = os.getenv("PIXIV_REFRESH_TOKEN", "")
@@ -180,36 +253,113 @@ class PixivClient:
         now = time.time()
         if now - self._last_auth < self._auth_ttl:
             return
+        causes = []
+        configured_mode = self.mode
+
+        # 1) 当前模式直接认证
         try:
             self.api.auth(refresh_token=refresh_token)
             self._last_auth = now
+            return
         except Exception as e:
-            if getattr(self, "_auto_direct", False) and self.proxy:
-                # auto mode: fall back to Clash proxy
-                try:
-                    self.mode = "proxy"
-                    self._auto_direct = False
-                    self.api = AppPixivAPI()
-                    self.api.requests = _build_session_with_referer(
-                        "https://app-api.pixiv.net/", use_proxy=True
-                    )
-                    self.api.requests_kwargs = {"timeout": REQUEST_TIMEOUT}
-                    self.api.auth(refresh_token=refresh_token)
-                    self._last_auth = now
-                except Exception as e2:
-                    raise PixivAuthError(f"认证失败（直连与代理均失败）：{e2}")
-            else:
-                cause = str(e)
-                if "SSLEOF" in cause or "UNEXPECTED_EOF" in cause:
-                    cause += "（常见原因：代理未把 oauth.secure.pixiv.net 走节点，请检查代理分流规则）"
-                raise PixivAuthError(f"认证失败：{cause[:200]}")
+            causes.append(str(e))
+            log.warning("pixiv auth failed in %s mode: %s", configured_mode, e)
+
+        # 2) auto 模式且配置了代理：回退到代理再试
+        if configured_mode == "auto" and self.proxy:
+            try:
+                candidate_api = self._new_api(use_proxy=True)
+                candidate_api.auth(refresh_token=refresh_token)
+                # Commit the mode only after authentication succeeds, so a
+                # failed proxy fallback cannot leave the client in proxy mode.
+                self.api = candidate_api
+                self.mode = "proxy"
+                self._auto_direct = False
+                self._last_auth = now
+                log.info("pixiv auth recovered via proxy fallback")
+                return
+            except Exception as e:
+                causes.append(str(e))
+                log.warning("pixiv auth proxy fallback failed: %s", e)
+
+        # 3) 直连/auto 模式：403、IP 失效或握手被掐时，先尝试标准 SNI，
+        #    再刷新直连地址。部分 Pixiv 边缘节点会拒绝无 SNI 的 TLS 请求。
+        if configured_mode in ("direct", "auto") and _looks_like_direct_retry_error(causes[0]):
+            try:
+                log.info("pixiv auth trying standard SNI direct fallback")
+                candidate_api = self._new_api(direct_sni=True)
+                candidate_api.auth(refresh_token=refresh_token)
+                self.api = candidate_api
+                self.mode = configured_mode
+                self._auto_direct = configured_mode == "auto"
+                self._last_auth = now
+                log.info("pixiv auth recovered with standard SNI direct connection")
+                return
+            except Exception as e:
+                causes.append(str(e))
+                log.info("pixiv auth standard SNI direct fallback failed: %s", e)
+
+            try:
+                refreshed = refresh_ips(
+                    hosts=("app-api.pixiv.net", "oauth.secure.pixiv.net")
+                )
+                if refreshed:
+                    log.info("pixiv direct IPs refreshed: %s", refreshed)
+                    for direct_sni, label in ((True, "SNI"), (False, "legacy")):
+                        try:
+                            candidate_api = self._new_api(direct_sni=direct_sni)
+                            candidate_api.auth(refresh_token=refresh_token)
+                            self.api = candidate_api
+                            self.mode = configured_mode
+                            self._auto_direct = configured_mode == "auto"
+                            self._last_auth = now
+                            log.info(
+                                "pixiv auth recovered after direct IP refresh (%s)",
+                                label,
+                            )
+                            return
+                        except Exception as e:
+                            causes.append(str(e))
+                            log.info(
+                                "pixiv auth after IP refresh failed (%s): %s",
+                                label,
+                                e,
+                            )
+                else:
+                    log.info("pixiv direct IP refresh found no usable endpoint")
+                    causes.append("DoH 未找到可通过校验的直连 IP")
+            except Exception as e:
+                causes.append(str(e))
+                log.warning("pixiv direct IP refresh failed: %s", e)
+
+        # 先截断原始异常，再追加中文提示，避免提示被 [:300] 裁掉。
+        cause = " | ".join(c for c in causes if c)[:220]
+        if _looks_like_invalid_token_error(cause):
+            cause += "（refresh token 已失效，请到设置页重新获取并填写）"
+        elif _looks_like_upstream_route_error(cause):
+            cause += (
+                "（认证请求被 Pixiv 上游或代理以 403/nginx 拒绝，这通常不是 "
+                "refresh token 无效；请检查直连节点/代理分流，或刷新直连 IP）"
+            )
+        elif _looks_like_transport_error(cause):
+            cause += (
+                "（常见原因：容器无法直连 Pixiv，或代理未把 oauth.secure.pixiv.net "
+                "走节点，请检查代理分流规则）"
+            )
+        # 失败后清掉认证缓存，下一次同步请求会重新尝试，而不是在 TTL 内继续沿用。
+        self._last_auth = 0
+        raise PixivAuthError(f"认证失败：{cause}")
+
+    def ensure_auth(self):
+        """公开的认证入口，供业务代码调用而不必碰私有方法。"""
+        self._ensure_auth()
 
     def get_illust_detail(self, illust_id):
         try:
             self._ensure_auth()
             return self._detail_once(illust_id)
         except PixivNetworkError:
-            if getattr(self, "_auto_direct", False) and self.mode == "direct":
+            if self.mode in ("direct", "auto"):
                 return self._retry_direct(illust_id)
             raise
         except PixivError:
@@ -251,7 +401,7 @@ class PixivClient:
     def _retry_direct(self, illust_id):
         """auto-direct 模式下刷新直连 IP 并重试一次。"""
         try:
-            refresh_ips()
+            refresh_ips(hosts=("app-api.pixiv.net",))
             self._last_auth = 0
             self._ensure_auth()
             return self._detail_once(illust_id)

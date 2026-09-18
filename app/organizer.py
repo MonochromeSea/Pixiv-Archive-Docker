@@ -45,6 +45,68 @@ def _path_has_ai_classification(path_rule, path_template=""):
     return False
 
 
+def _path_classification(path):
+    """Infer unavailable Pixiv metadata from explicit directory names only."""
+    rating = None
+    origin = None
+    matched_index = -1
+    parts = [part for part in os.path.normpath(path).split(os.sep) if part]
+    for index, part in enumerate(parts[:-1]):
+        token = re.sub(r"[^a-z0-9]+", "", part.casefold())
+        if token in {"r18", "r18g"}:
+            rating = "R18"
+            matched_index = max(matched_index, index)
+        elif token == "sfw":
+            rating = "SFW"
+            matched_index = max(matched_index, index)
+        elif token == "ai":
+            origin = "AI"
+            matched_index = max(matched_index, index)
+        elif token in {"human", "humen"}:
+            origin = "Human"
+            matched_index = max(matched_index, index)
+    return rating, origin, parts, matched_index
+
+
+def _source_relative_parts(path, source_dirs):
+    absolute = os.path.abspath(path)
+    matches = []
+    for source_dir in source_dirs:
+        if not _is_child(absolute, source_dir):
+            continue
+        relative = os.path.relpath(absolute, source_dir)
+        matches.append((len(os.path.abspath(source_dir)), source_dir, relative))
+    if not matches:
+        return "Source", [os.path.basename(absolute)]
+    _, source_dir, relative = max(matches, key=lambda item: item[0])
+    source_name = os.path.basename(os.path.normpath(source_dir)) or "Source"
+    return source_name, [part for part in relative.split(os.sep) if part]
+
+
+def _unavailable_destination(output_dir, path, source_dirs):
+    """Route deleted/inaccessible works by path without inventing metadata."""
+    rating, origin, absolute_parts, matched_index = _path_classification(path)
+    source_name, relative_parts = _source_relative_parts(path, source_dirs)
+    relative_dirs = relative_parts[:-1]
+    if not rating and not origin:
+        parts = ["手动处理", source_name, *relative_dirs]
+        return os.path.join(output_dir, *[_safe_name(p, "Unknown") for p in parts]), {
+            "mode": "manual",
+            "rating": None,
+            "origin": None,
+        }
+
+    # Preserve the useful path suffix after the final classification folder,
+    # such as the existing artist/work directories.
+    suffix_dirs = absolute_parts[matched_index + 1:-1] if matched_index >= 0 else relative_dirs
+    parts = [rating or "待判断", origin or "待判断", *suffix_dirs]
+    return os.path.join(output_dir, *[_safe_name(p, "Unknown") for p in parts]), {
+        "mode": "path",
+        "rating": rating,
+        "origin": origin,
+    }
+
+
 def _unique_dest(path):
     if not os.path.lexists(path):
         return path
@@ -102,15 +164,15 @@ PATH_RULES = {
 RENAME_RULES = {
     "keep": "保持原文件名",
     "shaft_classic": "标题_ID_页码",
-    "shaft_modern": "标题 ID_页码",
-    "title_author_page": "标题 作者_页码",
-    "shaft_flat": "标题 ID_页码",
-    "shaft_date": "标题 ID_页码",
-    "shaft_artist": "标题 ID_页码",
-    "shaft_artist_date": "标题 ID_页码",
-    "shaft_artist_work": "标题 ID_页码",
-    "shaft_id": "仅 ID_页码",
-    "bucket": "标题 ID_页码",
+    "shaft_modern": "标题 ID 页码",
+    "title_author_page": "标题 作者 页码",
+    "shaft_flat": "标题 ID 页码",
+    "shaft_date": "标题 ID 页码",
+    "shaft_artist": "标题 ID 页码",
+    "shaft_artist_date": "标题 ID 页码",
+    "shaft_artist_work": "标题 ID 页码",
+    "shaft_id": "仅 ID 页码",
+    "bucket": "标题 ID 页码",
     "shaft_detail": "详细信息",
     "custom": "自定义模板",
 }
@@ -118,6 +180,7 @@ RENAME_RULES = {
 SHAFT_PATH_TEMPLATES = {
     # Path templates describe directories only. File names are handled by
     # the source basename or the optional rename template below.
+    "bucket": "[?R18:R18/][?!R18:SFW/][?AI:AI/][?!AI:Human/]{author} ({author_id})",
     "shaft_classic": "ShaftImages",
     "shaft_modern": "Shaft/[?R18:R18/][?!R18:SFW/][?AI:AI/][?!AI:Human/]{author}_{author_id}",
     "shaft_flat": "Shaft",
@@ -131,14 +194,14 @@ SHAFT_PATH_TEMPLATES = {
 
 RENAME_TEMPLATES = {
     "shaft_classic": "{title}_{id}_p{page}.{ext}",
-    "shaft_modern": "{title} {id}_p{page}.{ext}",
-    "title_author_page": "{title} {author}_p{page}.{ext}",
+    "shaft_modern": "{title} {id} p{page}.{ext}",
+    "title_author_page": "{title} {author} p{page}.{ext}",
     "shaft_flat": "{title} {id}_p{page}.{ext}",
     "shaft_date": "{title} {id}_p{page}.{ext}",
     "shaft_artist": "{title} {id}_p{page}.{ext}",
     "shaft_artist_date": "{title} {id}_p{page}.{ext}",
     "shaft_artist_work": "{title} {id}_p{page}.{ext}",
-    "shaft_id": "{id}_p{page}.{ext}",
+    "shaft_id": "{id} p{page}.{ext}",
     "bucket": "{title} {id}_p{page}.{ext}",
     "shaft_detail": "{title}_{id}_{page}_{author}_{w}x{h}_{created:yyyyMMdd_HHmmss}.{ext}",
 }
@@ -282,7 +345,6 @@ def _build_destination(output_dir, row, rating, origin, path_rule, path_template
             render_template(SHAFT_PATH_TEMPLATES[path_rule], row, rating, origin)
         )
         return os.path.join(output_dir, relative)
-    filename = os.path.basename(row["path"])
     if path_rule == "artist":
         parts = [author]
     elif path_rule == "rating":
@@ -296,7 +358,7 @@ def _build_destination(output_dir, row, rating, origin, path_rule, path_template
         parts = [author, str(row.get("pixiv_id") or "Unknown Pixiv ID")]
     else:
         parts = [rating, origin, author]
-    return os.path.join(output_dir, *[_safe_name(p, "Unknown") for p in parts], filename)
+    return os.path.join(output_dir, *[_safe_name(p, "Unknown") for p in parts])
 
 
 def organize_files(
@@ -311,11 +373,15 @@ def organize_files(
     rename_enabled=False,
     rename_rule="title_author_page",
     rename_template="",
+    unavailable_pixiv_ids=None,
 ):
     if isinstance(source_dirs, (str, os.PathLike)):
         source_dirs = [source_dirs]
     source_dirs = [os.path.abspath(str(d)) for d in source_dirs if str(d).strip()]
     output_dir = os.path.abspath(output_dir)
+    unavailable_pixiv_ids = {
+        int(value) for value in (unavailable_pixiv_ids or []) if value is not None
+    }
     unknown_as_human = bool(unknown_as_human) and _path_has_ai_classification(
         path_rule, path_template
     )
@@ -345,8 +411,16 @@ def organize_files(
                ORDER BY a.id ASC, i.page ASC, i.id ASC"""
         ).fetchall()
         items = []
+        handled_unavailable_pixiv_ids = set()
         for row in rows:
             if not any(_is_child(row["path"], source_dir) for source_dir in source_dirs):
+                continue
+            if _is_child(row["path"], output_dir):
+                continue
+            row_data = dict(row)
+            if row["pixiv_id"] in unavailable_pixiv_ids:
+                handled_unavailable_pixiv_ids.add(int(row["pixiv_id"]))
+                items.append((row_data, None, None, True))
                 continue
             tags = conn.execute(
                 """SELECT t.name, t.translated_name
@@ -360,7 +434,7 @@ def organize_files(
                 row["ai_type"],
                 unknown_as_human=unknown_as_human,
             )
-            items.append((dict(row), rating, origin))
+            items.append((row_data, rating, origin, False))
 
     total = len(items)
     if total == 0:
@@ -371,6 +445,9 @@ def organize_files(
             "mode": mode,
             "cancelled": False,
             "error": "源文件夹中没有找到已入库的图片",
+            "unavailable_artworks": len(handled_unavailable_pixiv_ids),
+            "path_fallback_files": 0,
+            "manual_files": 0,
         }
     created_dirs = []
     if not os.path.exists(output_dir):
@@ -378,22 +455,43 @@ def organize_files(
     done = 0
     failed = 0
     classification_counts = {"AI": 0, "Human": 0, "Unknown": 0}
+    path_fallback_files = 0
+    manual_files = 0
     operations = []
-    for row, rating, origin in items:
-        classification_counts[origin] = classification_counts.get(origin, 0) + 1
+    for row, rating, origin, unavailable in items:
+        if not unavailable:
+            classification_counts[origin] = classification_counts.get(origin, 0) + 1
         if cancel_event and cancel_event.is_set():
             break
         src = row["path"]
         if not os.path.isfile(src):
             failed += 1
             continue
-        dst_dir = _build_destination(output_dir, row, rating, origin, path_rule, path_template)
+        fallback = None
+        if unavailable:
+            dst_dir, fallback = _unavailable_destination(
+                output_dir, src, source_dirs
+            )
+            if fallback["mode"] == "manual":
+                manual_files += 1
+            else:
+                path_fallback_files += 1
+        else:
+            dst_dir = _build_destination(
+                output_dir, row, rating, origin, path_rule, path_template
+            )
         # Path templates only select the destination directory. The old
         # organizer behavior keeps the source basename unless renaming is
         # explicitly enabled.
         dst = os.path.join(dst_dir, os.path.basename(src))
-        if rename_enabled and rename_rule != "keep":
-            rename_tpl = rename_template or RENAME_TEMPLATES.get(rename_rule, "")
+        if not unavailable and rename_enabled and rename_rule != "keep":
+            # A saved custom template must not override a subsequently selected
+            # preset. Only the custom rule is allowed to consume this value.
+            rename_tpl = (
+                rename_template
+                if rename_rule == "custom"
+                else RENAME_TEMPLATES.get(rename_rule, "")
+            )
             rendered_name = _safe_template_path(
                 render_template(rename_tpl, row, rating, origin)
             )
@@ -407,6 +505,7 @@ def organize_files(
                 "dst": dst,
                 "image_id": row["image_id"],
                 "artwork_id": row["artwork_id"],
+                "fallback": fallback,
             })
             if mode == "move":
                 with get_db() as conn:
@@ -452,7 +551,12 @@ def organize_files(
         "cancelled": bool(cancel_event and cancel_event.is_set()),
         "classification_counts": classification_counts,
         "source_dirs": source_dirs,
+        "output_dir": output_dir,
         "path_rule": path_rule,
+        "unavailable_artworks": len(handled_unavailable_pixiv_ids),
+        "unavailable_pixiv_ids": sorted(handled_unavailable_pixiv_ids),
+        "path_fallback_files": path_fallback_files,
+        "manual_files": manual_files,
     }
     log.info(
         "organize classification: AI=%d Human=%d Unknown=%d",
@@ -460,6 +564,15 @@ def organize_files(
         classification_counts.get("Human", 0),
         classification_counts.get("Unknown", 0),
     )
+    if handled_unavailable_pixiv_ids:
+        log.warning(
+            "organize unavailable metadata fallback: artworks=%d path_files=%d "
+            "manual_files=%d pixiv_ids=%s",
+            len(handled_unavailable_pixiv_ids),
+            path_fallback_files,
+            manual_files,
+            sorted(handled_unavailable_pixiv_ids),
+        )
     return result
 
 

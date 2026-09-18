@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import paths  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
+from starlette.requests import ClientDisconnect  # noqa: E402
 
 # 先加载 .env，使设置里保存的 PA_PORT / PA_HOST / PA_ACCESS_TOKEN 生效
 load_dotenv(paths.ENV_FILE)
@@ -38,6 +39,13 @@ from app.main import app, LAN_MODE, lan_access_url  # noqa: E402
 
 
 class ASGIHTTPServer:
+    _CONN_ERRORS = (
+        BrokenPipeError,
+        ConnectionResetError,
+        ConnectionAbortedError,
+        ClientDisconnect,
+    )
+
     def __init__(self, asgi_app, host="127.0.0.1", port=8000):
         self.asgi_app = asgi_app
         self.host = host
@@ -111,7 +119,10 @@ class ASGIHTTPServer:
                     for key, value in event.get("headers", []):
                         writer.write(key + b": " + value + b"\r\n")
                     writer.write(b"\r\n")
-                    await writer.drain()
+                    try:
+                        await writer.drain()
+                    except self._CONN_ERRORS:
+                        raise
                     response_started = True
                 elif event["type"] == "http.response.body":
                     chunk = event.get("body", b"")
@@ -119,13 +130,24 @@ class ASGIHTTPServer:
                         chunk = chunk.encode("utf-8")
                     if chunk:
                         writer.write(chunk)
-                        await writer.drain()
+                        try:
+                            await writer.drain()
+                        except self._CONN_ERRORS:
+                            raise
 
-            await self.asgi_app(scope, receive, send)
+            try:
+                await self.asgi_app(scope, receive, send)
+            except self._CONN_ERRORS:
+                pass
 
             if not response_started:
                 writer.write(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
-                await writer.drain()
+                try:
+                    await writer.drain()
+                except self._CONN_ERRORS:
+                    pass
+        except self._CONN_ERRORS:
+            pass
         except Exception:
             traceback.print_exc()
         finally:

@@ -12,7 +12,7 @@ log = logging.getLogger("pixiv_archive.jobs")
 
 _lock = threading.Lock()
 _jobs = {}
-_active = {"thread": None}
+_active = {"thread": None, "job_id": None}
 _MAX_JOBS = 50
 
 
@@ -98,6 +98,19 @@ def is_busy():
         return t is not None and t.is_alive()
 
 
+def active():
+    """返回当前正在运行的任务快照；没有活动任务时返回 None。"""
+    with _lock:
+        thread = _active["thread"]
+        job_id = _active["job_id"]
+        if thread is None or not thread.is_alive() or not job_id:
+            return None
+        job = _jobs.get(job_id)
+        if not job or job.state.get("status") != "running":
+            return None
+        return job.snapshot()
+
+
 def start(kind, fn):
     """启动后台任务。fn 接收一个 Job 实例。返回 (job_id, error)。
 
@@ -136,9 +149,11 @@ def start(kind, fn):
                 with _lock:
                     if _active["thread"] is thread:
                         _active["thread"] = None
+                        _active["job_id"] = None
 
         thread = threading.Thread(target=run, name=f"job-{kind}", daemon=True)
         _active["thread"] = thread
+        _active["job_id"] = job.job_id
 
     thread.start()
     return job.job_id, None

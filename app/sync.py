@@ -84,6 +84,10 @@ def sync_metadata(
             ).fetchall()
 
         total = len(rows)
+        scope = (
+            "single" if specific_pixiv_id
+            else ("subset" if specific_pixiv_ids else ("full" if force_all else "incremental"))
+        )
         results = {
             "synced": 0,
             "ai_detected": 0,
@@ -94,6 +98,22 @@ def sync_metadata(
             "details": [],
         }
         pending_details = []
+        # 批量管线按批次调用本函数，逐批 INFO 会刷屏；批次级只在 DEBUG 输出。
+        _log = log.debug if scope == "subset" else log.info
+        _log(
+            "metadata sync started: scope=%s artworks=%d delay_ms=%d batch=%d",
+            scope, total, delay_ms, commit_batch_size,
+        )
+
+        # 预先认证一次：token 失效时立即失败，不把错误逐条写进 artwork.sync_error，
+        # 也不要在没有任何成功可能时白跑一整轮。
+        if total:
+            try:
+                client.ensure_auth()
+            except PixivAuthError as e:
+                results["auth_error"] = str(e)
+                log.error("metadata sync aborted before start: pixiv auth failed: %s", e)
+                return results
 
         def commit_pending(force=False):
             if not pending_details or (not force and len(pending_details) < commit_batch_size):
@@ -129,6 +149,12 @@ def sync_metadata(
                     "sync", idx + 1, total,
                     f"同步元数据…{idx + 1}/{total}（PID {pixiv_id}）",
                 )
+            # 全量重建可能跑很久，定期在容器日志打点，方便判断是否卡住。
+            if total > 50 and (idx + 1) % 25 == 0:
+                log.info(
+                    "metadata sync progress: %d/%d synced=%d failed=%d",
+                    idx + 1, total, results["synced"], results["failed"],
+                )
 
             # 每次请求前按间隔限速（0.1s 分片，随时可取消）
             if delay_ms > 0:
@@ -146,6 +172,10 @@ def sync_metadata(
                 illust_data = client.get_illust_detail(pixiv_id)
             except PixivAuthError as e:
                 # 认证失败：继续请求也会失败，中止整批并回传原因
+                log.error(
+                    "metadata sync aborted: pixiv auth failed at pixiv_id=%s: %s",
+                    pixiv_id, e,
+                )
                 results["auth_error"] = str(e)
                 results["failed"] += 1
                 results["details"].append(
@@ -162,6 +192,9 @@ def sync_metadata(
                 break
             except PixivNetworkError as e:
                 # 网络失败：不改作品状态，记录原因，下次同步自动重试
+                log.warning(
+                    "metadata sync network error at pixiv_id=%s: %s", pixiv_id, e,
+                )
                 results["failed"] += 1
                 results["details"].append(
                     {"pixiv_id": pixiv_id, "status": "failed", "error": str(e)}
@@ -177,6 +210,7 @@ def sync_metadata(
                 continue
             except PixivDeletedError as e:
                 # 仅当 Pixiv 明确返回“作品已删除/不存在”时才标记 deleted
+                log.info("metadata sync marked deleted: pixiv_id=%s (%s)", pixiv_id, e)
                 conn.execute(
                     "UPDATE artworks SET pixiv_status = 'deleted', last_synced = ?, sync_error = NULL WHERE id = ?",
                     (now_str, artwork_id),
@@ -229,7 +263,8 @@ def sync_metadata(
             )
 
             _save_metadata_json(pixiv_id, illust_data)
-            log.info(
+            # 逐条成功日志只在 DEBUG 输出；全量同步上千作品时 INFO 会刷屏。
+            log.debug(
                 "metadata synced: pixiv_id=%s ai_type=%s source=%s",
                 pixiv_id,
                 ai_type,
@@ -247,6 +282,12 @@ def sync_metadata(
             commit_pending()
 
         commit_pending(force=True)
+        _log(
+            "metadata sync finished: scope=%s synced=%d ai_detected=%d failed=%d "
+            "deleted=%d cancelled=%s auth_error=%s",
+            scope, results["synced"], results["ai_detected"], results["failed"],
+            results["deleted"], results["cancelled"], bool(results["auth_error"]),
+        )
         return results
 
 

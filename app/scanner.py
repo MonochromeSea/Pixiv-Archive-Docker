@@ -66,7 +66,7 @@ def extract_page_from_filename(filename, fallback=0):
 def compute_sha256(filepath):
     h = hashlib.sha256()
     with open(filepath, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
 
@@ -111,9 +111,15 @@ def scan_directory(source_dir, progress_callback=None, cancel_event=None, pause_
     log.info("%s scan started for source directory: %s; hash_mode=%s",
              mode, source_dir, _scan_hash_mode(incremental))
     if changed_files is not None:
+        # Watchdog may emit several events for one copied or renamed file.
+        seen_changed = set()
         for filepath in changed_files:
             if not _wait_if_paused(cancel_event, pause_event):
                 return {"cancelled": True, "new_artworks": new_artworks, "new_images": new_images}
+            normalized = os.path.normcase(os.path.abspath(filepath))
+            if normalized in seen_changed:
+                continue
+            seen_changed.add(normalized)
             if not os.path.isfile(filepath):
                 continue
             ext = os.path.splitext(filepath)[1].lower()

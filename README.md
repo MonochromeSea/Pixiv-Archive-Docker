@@ -49,7 +49,7 @@
 - **低 IO 增量扫描**：使用 `path + mtime_ns + size` 判断文件是否变化；未变化文件不会重复写数据库，也不会重复生成缩略图或同步元数据。
 - **精确去重**：只对同一作品同一页的候选文件计算 SHA-256，不受本地文件名影响，避免全图库逐文件读取内容。
 - **多页作品显示**：画廊默认展开显示每一页；也可在右上角切换为合并作品模式，仅显示 `p1` 封面。
-- **近屏加载与预热**：画廊使用 `IntersectionObserver`，只加载视口上下约两个屏幕范围内的图片；同时对合并/展开模式切换所需的少量图片进行内存预热，最多保留约 40 个图片资源。
+- **近屏加载**：画廊使用 `IntersectionObserver`，只加载视口上下约两个屏幕范围内的图片；优先加载当前正在浏览的作品组的所有页面。
 - **缩略图生成**：为库内作品自动生成统一尺寸的缩略图（JPG），封面优先使用 `p1`。
 - **自动监看**：可在设置页开启本地图片目录监看；发现新图片后自动扫描入库、刷新缩略图并同步元数据，默认使用事件监听而不是轮询。
 - **网页浏览界面**：瀑布流/排序浏览、多图页查看原图、作品详情页（标题、描述、标签、作者），支持自动扫描完成后刷新画廊。
@@ -63,7 +63,7 @@
 - **重复文件管理**：重复文件页面默认勾选创建时间较晚的文件；只有同一作品同一页存在多个本地文件时才计算 SHA-256，确认一致后才列为重复。删除前会先删除实际源文件，源文件删除失败时保留数据库记录。
 - **怀疑文件管理**：同一作品同一页的 hash 不一致候选会单独列出，不会被误判为完全重复；默认可勾选分辨率较低的文件，便于人工复核。
 - **局域网访问**：`--lan` 或 `Start-LAN.bat` 可开放局域网访问，通过访问令牌（`?token=...` / `X-Access-Token` 请求头 / Cookie）保护，防止未授权设备访问。
-- **直连 / 代理自适应**：`PIXIV_MODE` 支持 `direct`（直连 IP 免 SNI）、`proxy`（走 Clash 类代理）、`auto`（自动尝试并回退）。
+- **直连 / 代理自适应**：`PIXIV_MODE` 支持 `direct`（直连 IP 免 SNI）、`proxy`（走 Clash 类代理）、`auto`（自动尝试并回退）。直连遇 403/nginx 时会自动改用标准 SNI 重试、再刷新直连 IP；`PIXIV_PROXY` 未设置时回退读取容器里的 `HTTPS_PROXY` / `HTTP_PROXY`，`direct` 模式则始终真直连，不受这些环境变量影响。
 - **第三方图片镜像（可选）**：设置中可填写镜像域名，用第三方图站接管图片下载与头像获取（作品列表与认证仍走 Pixiv 官方 API）。
 - **一键启动 / 一键打包**：`.bat` 脚本自动查找 Python、创建 venv、安装依赖；`build-exe.bat` 可从源码直接编译出单文件 exe。
 - **桌面窗口模式**：`launcher.bat` 可选用 pywebview 原生窗口呈现，缺失时自动回退到浏览器。
@@ -237,7 +237,8 @@ AUTO_WATCH_DEBOUNCE_SECONDS=30
 | `AUTO_WATCH_ENABLED` | 是否自动监看图片目录，`1` 开启 / `0` 关闭 |
 | `AUTO_WATCH_DEBOUNCE_SECONDS` | 自动监看触发扫描前的防抖等待秒数，默认 `30` |
 | `AUTO_WATCH_POLLING` | 自动监看的轮询备用模式，`1` 开启；仅在 Docker/挂载盘不传递文件事件时使用 |
-| `PA_SSE_RELEASE_DELAY_SECONDS` | 关闭显示窗口后释放前端显示资源的等待秒数，默认 `60`，可在设置页修改；仅影响浏览器端缓存、预加载和观察器 |
+| `PA_SSE_RELEASE_ENABLED` | 是否在关闭显示窗口后释放前端显示资源，默认 `0`（关闭）；可在设置页开启 |
+| `PA_SSE_RELEASE_DELAY_SECONDS` | 开启资源释放后，等待多少秒释放前端显示资源，默认 `60`；仅影响浏览器端缓存、预加载和观察器 |
 | `PA_SCAN_HASH_MODE` | 普通扫描 hash 策略；推荐 `off`，重复候选组仍会计算 SHA-256。`always` 会对所有扫描文件计算 hash，可能增加 IO |
 | `PA_SCAN_COMMIT_BATCH` | 扫描数据库批量提交数量，默认 `8` |
 | `PA_SYNC_BATCH_SIZE` | 元数据同步批量作品数量，默认 `8` |
@@ -250,7 +251,7 @@ AUTO_WATCH_DEBOUNCE_SECONDS=30
 | `PA_LOG_LEVEL` | 运行日志级别，默认 `INFO` |
 | `PA_DATA_DIR` | 数据目录覆盖；Docker 默认使用 `/app/data`，普通源码运行通常留空 |
 | `PIXIV_MODE` | `direct` 直连 / `proxy` 代理 / `auto` 自动（默认 auto） |
-| `PIXIV_PROXY` | 代理地址，如 `http://127.0.0.1:7890` |
+| `PIXIV_PROXY` | 代理地址，如 `http://127.0.0.1:7890`；留空时回退读取 `HTTPS_PROXY` / `HTTP_PROXY` |
 | `THUMBNAIL_SIZE` | 缩略图边长，默认 400 |
 | `THUMBNAIL_DIR` / `METADATA_DIR` | 缩略图 / 元数据存放目录名 |
 | `PA_PORT` / `PA_HOST` | 服务端口 / 绑定地址，默认 6814 / 127.0.0.1 |
@@ -431,13 +432,15 @@ venv\Scripts\python.exe -m PyInstaller --clean --noconfirm --distpath Release --
 **自动监看看到新文件但画廊没刷新？**
 先查看 `/api/watch/status` 和 `docker logs -f pixiv-archive`。正常日志应包含 `auto scan job started`、`thumbnail refresh finished` 和 `metadata synced: pixiv_id=... ai_type=... source=...`。其中 `ai_type=2` 表示已识别为 AI 作品，`ai_type=1` 表示 Human；如果没有元数据同步日志，通常是 `PIXIV_REFRESH_TOKEN` 未设置或无效。
 
-自动监控会把防抖窗口内变化的图片路径直接交给增量扫描器，不会为每次文件事件递归遍历整个图库。扫描入库按 `PA_SCAN_COMMIT_BATCH` 小批次提交，缩略图和元数据使用独立有界队列并行处理；元数据同步通过 `PA_SYNC_BATCH_SIZE` 分批执行。默认值均为 `8`，通常无需调整。`PA_METADATA_COMPACT=1` 会以紧凑 JSON 保存 metadata，减少写入量和硬盘占用。画廊另外使用最多约 40 个条目的预热缓存，预热跟随当前排序/筛选，SSE 断开达到设置时间后会清空。
+自动监控会把防抖窗口内变化的图片路径直接交给增量扫描器，不会为每次文件事件递归遍历整个图库。扫描入库按 `PA_SCAN_COMMIT_BATCH` 小批次提交，缩略图和元数据使用独立有界队列并行处理；元数据同步通过 `PA_SYNC_BATCH_SIZE` 分批执行。默认值均为 `8`，通常无需调整。`PA_METADATA_COMPACT=1` 会以紧凑 JSON 保存 metadata，减少写入量和硬盘占用。画廊使用近屏懒加载，SSE 断开达到设置时间后会清空已加载资源。
 
 **自动监看会影响硬盘休眠吗？**
 默认事件监听模式不会定时扫盘，只有收到文件变化事件后才触发扫描。`AUTO_WATCH_POLLING=1` 是轮询备用模式，可能影响硬盘休眠，仅在 Docker/NAS 挂载不传递文件事件时使用。
 
 **同步失败 / 认证失败？**
 确认 `.env` 中 `PIXIV_REFRESH_TOKEN` 有效未过期，且网络可访问 pixiv；可在设置中切换直连 / 代理模式（`PIXIV_MODE` / `PIXIV_PROXY`）。
+
+如果日志里是 `HTTP 403` 加一段 nginx / Cloudflare 的 HTML，这**不是** refresh token 失效，而是请求在到达 Pixiv API 之前被上游或代理拒绝了：请检查代理分流规则（`oauth.secure.pixiv.net`、`app-api.pixiv.net` 需要走节点），或到设置页点「刷新直连 IP」。当前版本会在报错前自动依次尝试标准 SNI 直连、代理回退和直连 IP 刷新，并把每个阶段的失败原因写进容器日志（`pixiv auth ...` 开头的行），据此可以直接定位是哪一段线路出了问题。
 
 **局域网下其他设备无法访问？**
 确认使用 `Start-LAN.bat`（绑定了 0.0.0.0）、本机防火墙放行对应端口，并在访问 URL 末尾保留 `?token=...`。

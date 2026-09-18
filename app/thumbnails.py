@@ -1,5 +1,7 @@
 import os
 import hashlib
+import logging
+import tempfile
 from PIL import Image
 from dotenv import load_dotenv
 from app import paths
@@ -8,6 +10,7 @@ load_dotenv(paths.ENV_FILE)
 
 THUMBNAIL_SIZE = int(os.getenv("THUMBNAIL_SIZE", "400"))
 THUMBNAIL_DIR = os.getenv("THUMBNAIL_DIR", "thumbnails")
+log = logging.getLogger("pixiv_archive.thumbnails")
 
 
 def get_thumbnail_dir():
@@ -29,8 +32,20 @@ def generate_image_thumbnail(source_path, force=False):
     thumb_path = _image_thumbnail_path(source_path)
     os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
     if os.path.exists(thumb_path) and not force:
-        return thumb_path
-    temp_path = f"{thumb_path}.{os.getpid()}.tmp"
+        try:
+            if os.path.getsize(thumb_path) > 0:
+                return thumb_path
+            os.remove(thumb_path)
+        except OSError:
+            pass
+    temp_file = tempfile.NamedTemporaryFile(
+        prefix=os.path.basename(thumb_path) + ".",
+        suffix=".tmp",
+        dir=os.path.dirname(thumb_path),
+        delete=False,
+    )
+    temp_path = temp_file.name
+    temp_file.close()
     try:
         with Image.open(source_path) as source:
             source.draft("RGB", (THUMBNAIL_SIZE, THUMBNAIL_SIZE))
@@ -41,6 +56,7 @@ def generate_image_thumbnail(source_path, force=False):
         os.replace(temp_path, thumb_path)
         return thumb_path
     except Exception:
+        log.exception("image thumbnail generation failed: source=%s", source_path)
         try:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -55,17 +71,35 @@ def generate_thumbnail(source_path, pixiv_id, force=False):
     thumb_path = os.path.join(thumb_dir, f"{pixiv_id}.jpg")
 
     if os.path.exists(thumb_path) and not force:
-        return thumb_path
+        try:
+            if os.path.getsize(thumb_path) > 0:
+                return thumb_path
+            os.remove(thumb_path)
+        except OSError:
+            pass
 
+    # Write beside the final file and replace atomically so browser requests
+    # never observe a half-written JPEG during a refresh.
+    temp_file = tempfile.NamedTemporaryFile(
+        prefix=f"{pixiv_id}.", suffix=".tmp", dir=thumb_dir, delete=False
+    )
+    temp_path = temp_file.name
+    temp_file.close()
     try:
         with Image.open(source_path) as source:
             source.draft("RGB", (THUMBNAIL_SIZE, THUMBNAIL_SIZE))
             img = source.convert("RGB")
         img.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE), Image.LANCZOS)
-        img.save(thumb_path, "JPEG", quality=85)
+        img.save(temp_path, "JPEG", quality=85, optimize=False)
         img.close()
+        os.replace(temp_path, thumb_path)
         return thumb_path
     except Exception:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
         return None
 
 
@@ -104,7 +138,7 @@ def generate_all_thumbnails(conn, progress_callback=None, cancel_event=None):
             progress_callback("thumb", i + 1, total, f"生成缩略图…{i + 1}/{total}")
         pixiv_id = row["pixiv_id"]
         source_path = row["path"]
-        thumb_path = generate_thumbnail(source_path, pixiv_id, force=True)
+        thumb_path = generate_thumbnail(source_path, pixiv_id, force=False)
         if thumb_path:
             if os.path.getsize(thumb_path) > 0:
                 results["generated"] += 1

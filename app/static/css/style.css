@@ -745,6 +745,11 @@ html.sb-collapsed .safe-badge {
     background: linear-gradient(135deg, var(--surface-2), var(--surface));
 }
 
+.tile > img.gallery-image-failed {
+    min-height: 120px;
+    background: var(--surface-2);
+}
+
 .tile.selected {
     outline: 2px solid var(--accent);
     outline-offset: -2px;

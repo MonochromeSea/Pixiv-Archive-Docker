@@ -131,6 +131,7 @@ _SETTING_ENV_KEYS = (
     "PA_ACCESS_TOKEN",
     "SYNC_DELAY_MS",
     "AUTO_WATCH_ENABLED",
+    "PA_SSE_RELEASE_ENABLED",
     "PA_SSE_RELEASE_DELAY_SECONDS",
     "PA_SCAN_HASH_MODE",
     "PA_SHOW_FOLDER_BTN",
@@ -369,6 +370,163 @@ def _scan_source_dirs(source_dirs, progress_callback=None, cancel_event=None, pa
             combined[key] += result.get(key, 0) or 0
     log.info("%s finished: %s", scan_mode, combined)
     return combined
+
+
+def _path_in_source_dirs(path, source_dirs):
+    try:
+        absolute = os.path.normcase(os.path.abspath(path))
+    except (TypeError, ValueError):
+        return False
+    for source_dir in source_dirs:
+        root = os.path.normcase(os.path.abspath(source_dir))
+        try:
+            if os.path.commonpath((root, absolute)) == root:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _organizer_missing_metadata_ids(source_dirs):
+    """Return unsynced artworks that have at least one image in organizer sources."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT a.pixiv_id, a.title, a.author_name, a.last_synced,
+                      a.sync_error, a.pixiv_status, i.path
+               FROM artworks a
+               JOIN images i ON i.artwork_id = a.id
+               WHERE a.pixiv_status IS NULL OR a.pixiv_status != 'deleted'
+               ORDER BY a.id ASC, i.id ASC"""
+        ).fetchall()
+    missing = []
+    seen = set()
+    for row in rows:
+        pixiv_id = row["pixiv_id"]
+        if pixiv_id in seen or not _path_in_source_dirs(row["path"], source_dirs):
+            continue
+        incomplete = (
+            not str(row["title"] or "").strip()
+            or not str(row["last_synced"] or "").strip()
+            or bool(str(row["sync_error"] or "").strip())
+        )
+        if incomplete:
+            seen.add(pixiv_id)
+            missing.append(pixiv_id)
+    return missing
+
+
+def _organizer_unavailable_metadata_ids(source_dirs):
+    """Return deleted/inaccessible artworks that have no reliable cached metadata."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT a.pixiv_id, a.title, a.last_synced, i.path
+               FROM artworks a
+               JOIN images i ON i.artwork_id = a.id
+               WHERE a.pixiv_status = 'deleted'
+               ORDER BY a.id ASC, i.id ASC"""
+        ).fetchall()
+    unavailable = []
+    seen = set()
+    for row in rows:
+        pixiv_id = row["pixiv_id"]
+        if pixiv_id in seen or not _path_in_source_dirs(row["path"], source_dirs):
+            continue
+        if not str(row["title"] or "").strip() or not str(row["last_synced"] or "").strip():
+            seen.add(pixiv_id)
+            unavailable.append(pixiv_id)
+    return unavailable
+
+
+def _prepare_organizer_metadata(job, source_dirs):
+    """Import unknown local files and fetch missing metadata before organizing."""
+    job.update(phase="scan", current=0, total=None, message="整理前检查本地图片…")
+    scan_result = _scan_source_dirs(
+        source_dirs,
+        progress_callback=job.update,
+        cancel_event=job.cancel_event,
+        pause_event=job.pause_event,
+        incremental=True,
+    )
+    if scan_result.get("cancelled") or job.cancel_event.is_set():
+        return {"scan": scan_result, "sync": None, "cancelled": True}
+
+    pixiv_ids = _organizer_missing_metadata_ids(source_dirs)
+    unavailable_ids = _organizer_unavailable_metadata_ids(source_dirs)
+    log.info(
+        "organize metadata preflight finished: scanned=%s new_artworks=%s "
+        "new_images=%s missing_metadata=%d",
+        scan_result.get("total_files_scanned", 0),
+        scan_result.get("new_artworks", 0),
+        scan_result.get("new_images", 0),
+        len(pixiv_ids),
+    )
+    if not pixiv_ids:
+        if unavailable_ids:
+            log.warning(
+                "organize will use path fallback for %d artwork(s) without recoverable metadata: %s",
+                len(unavailable_ids),
+                unavailable_ids,
+            )
+        return {
+            "scan": scan_result,
+            "sync": None,
+            "cancelled": False,
+            "unavailable_pixiv_ids": unavailable_ids,
+        }
+    if not (os.getenv("PIXIV_REFRESH_TOKEN", "") or "").strip():
+        raise RuntimeError(
+            f"整理前发现 {len(pixiv_ids)} 个作品缺少本地元数据，"
+            "但尚未设置 Pixiv Refresh Token"
+        )
+
+    job.update(
+        phase="sync",
+        current=0,
+        total=len(pixiv_ids),
+        message=f"整理前同步缺失元数据…0/{len(pixiv_ids)}",
+    )
+    try:
+        batch_size = max(1, min(int(os.getenv("PA_SYNC_BATCH_SIZE", "8")), 32))
+    except (TypeError, ValueError):
+        batch_size = 8
+    sync_result = sync_metadata(
+        specific_pixiv_ids=pixiv_ids,
+        progress_callback=job.update,
+        cancel_event=job.cancel_event,
+        pause_event=job.pause_event,
+        initialize_db=False,
+        commit_each=False,
+        commit_batch_size=batch_size,
+    )
+    log.info(
+        "organize metadata sync finished: requested=%d synced=%s failed=%s "
+        "deleted=%s auth_error=%s",
+        len(pixiv_ids),
+        sync_result.get("synced", 0),
+        sync_result.get("failed", 0),
+        sync_result.get("deleted", 0),
+        bool(sync_result.get("auth_error")),
+    )
+    if sync_result.get("auth_error"):
+        raise RuntimeError(f"整理前同步元数据认证失败：{sync_result['auth_error']}")
+    if sync_result.get("failed", 0):
+        raise RuntimeError(
+            f"整理前有 {sync_result['failed']} 个作品元数据同步失败；"
+            "已停止整理，避免错误分类"
+        )
+    unavailable_ids = _organizer_unavailable_metadata_ids(source_dirs)
+    if unavailable_ids:
+        log.warning(
+            "organize will use path fallback for %d artwork(s) deleted or inaccessible on Pixiv: %s",
+            len(unavailable_ids),
+            unavailable_ids,
+        )
+    return {
+        "scan": scan_result,
+        "sync": sync_result,
+        "cancelled": bool(sync_result.get("cancelled")) or job.cancel_event.is_set(),
+        "unavailable_pixiv_ids": unavailable_ids,
+    }
 
 
 def _run_ingest_pipeline(job, source_dirs, incremental=False, changed_files=None):
@@ -1081,6 +1239,7 @@ def api_artwork_detail(artwork_id: int):
             "first_seen": row["first_seen"],
             "last_synced": row["last_synced"],
             "sync_error": row["sync_error"] or "",
+            "cover_thumb_url": f"/thumbnails/{row['pixiv_id']}.jpg",
             "images": image_payload,
             "tags": [dict(tag) for tag in tags],
             "favorites": [dict(f) for f in favorites],
@@ -1699,7 +1858,7 @@ def _run_bookmark_check(job, subs, source_dir):
 
     delay = _parse_sync_delay(os.getenv("SYNC_DELAY_MS", ""))
     client = get_pixiv_client()
-    client._ensure_auth()
+    client.ensure_auth()
     session = _build_session_with_referer(
         "https://www.pixiv.net/", use_proxy=(client.mode == "proxy")
     )
@@ -1826,7 +1985,7 @@ def api_preview_bookmark_sub(pixiv_user_id: int):
                                "请到 设置 → Pixiv Refresh Token 填写后重试")
     client = get_pixiv_client()
     try:
-        client._ensure_auth()
+        client.ensure_auth()
         name = client.get_user_display_name(pixiv_user_id)
         # 首屏：不带游标取一页，统计非空条数
         illusts, _ = client.list_user_bookmarks(pixiv_user_id)
@@ -1921,6 +2080,21 @@ def api_sync(pixiv_id: int = Query(0)):
             ),
         )
         job.state["result"] = result
+        log.info(
+            "manual sync result: synced=%s failed=%s deleted=%s auth_error=%s cancelled=%s",
+            result.get("synced"),
+            result.get("failed"),
+            result.get("deleted"),
+            bool(result.get("auth_error")),
+            result.get("cancelled"),
+        )
+        if result.get("auth_error"):
+            synced = int(result.get("synced") or 0)
+            prefix = (
+                f"同步认证失败，本次仅成功 {synced} 个作品"
+                if synced else "同步认证失败，未更新任何元数据"
+            )
+            raise RuntimeError(f"{prefix}：{result['auth_error']}")
 
     job_id, error = jobs.start("sync", run_sync)
     if error:
@@ -1956,11 +2130,31 @@ def api_sync_full():
             ),
         )
         job.state["result"] = result
+        log.info(
+            "manual metadata rebuild result: synced=%s failed=%s deleted=%s auth_error=%s cancelled=%s",
+            result.get("synced"),
+            result.get("failed"),
+            result.get("deleted"),
+            bool(result.get("auth_error")),
+            result.get("cancelled"),
+        )
+        if result.get("auth_error"):
+            synced = int(result.get("synced") or 0)
+            prefix = (
+                f"重建元数据认证失败，本次仅成功 {synced} 个作品"
+                if synced else "重建元数据认证失败，未更新任何元数据"
+            )
+            raise RuntimeError(f"{prefix}：{result['auth_error']}")
 
     job_id, error = jobs.start("sync_full", run_sync)
     if error:
         return _busy_error()
     return {"job_id": job_id, "kind": "sync_full"}
+
+
+@app.get("/api/jobs/active")
+def api_active_job():
+    return {"job": jobs.active()}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -2004,6 +2198,7 @@ def api_watch_status():
         "configured_dirs": _get_source_dirs(),
         "watcher": _folder_watcher.status(),
         "busy": jobs.is_busy(),
+        "active_job": jobs.active(),
         "last_auto_job_id": _last_auto_job_id,
         "last_auto_job": jobs.get(_last_auto_job_id) if _last_auto_job_id else None,
     }
@@ -2070,6 +2265,7 @@ def api_get_settings():
         "access_token_auto": access_token_auto,
         "sync_delay_ms": _parse_sync_delay(settings.get("SYNC_DELAY_MS", "")),
         "auto_watch_enabled": (settings.get("AUTO_WATCH_ENABLED", "") or "").strip() == "1",
+        "sse_release_enabled": _bool_env(settings.get("PA_SSE_RELEASE_ENABLED", ""), False),
         "sse_release_delay_seconds": _parse_sse_release_delay(settings.get("PA_SSE_RELEASE_DELAY_SECONDS", ""), 60),
         "show_folder_button": _bool_env(settings.get("PA_SHOW_FOLDER_BTN", ""), True),
         "viewer_auto_original": _bool_env(settings.get("PA_VIEWER_AUTO_ORIGINAL", ""), True),
@@ -2109,6 +2305,7 @@ async def api_update_settings(request: Request):
         sync_delay_ms: str = ""
         image_mirror: str = ""
         auto_watch_enabled: bool = False
+        sse_release_enabled: bool = False
         sse_release_delay_seconds: str = ""
         show_folder_button: bool = True
         viewer_auto_original: bool = True
@@ -2194,6 +2391,10 @@ async def api_update_settings(request: Request):
         auto_watch = "1" if data.auto_watch_enabled else "0"
         updates["AUTO_WATCH_ENABLED"] = auto_watch
         os.environ["AUTO_WATCH_ENABLED"] = auto_watch
+    if "sse_release_enabled" in body:
+        release_enabled = "1" if data.sse_release_enabled else "0"
+        updates["PA_SSE_RELEASE_ENABLED"] = release_enabled
+        os.environ["PA_SSE_RELEASE_ENABLED"] = release_enabled
     if "sse_release_delay_seconds" in body:
         raw_delay = (data.sse_release_delay_seconds or "").strip()
         if raw_delay.isdigit() and 10 <= int(raw_delay) <= 86400:
@@ -2349,15 +2550,51 @@ def serve_image(filepath: str):
     return FileResponse(decoded)
 
 
+@app.get("/image-original/{image_id}")
+def serve_original_image(image_id: int):
+    """Serve the current registered source file by image id.
+
+    Using the database id avoids URL parsing issues for source filenames that
+    contain characters such as # or ?.
+    """
+    with get_db() as conn:
+        row = conn.execute("SELECT path FROM images WHERE id = ?", (image_id,)).fetchone()
+    if not row or not row["path"]:
+        log.warning("original image request has no registered path: image_id=%s", image_id)
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if not os.path.isfile(row["path"]):
+        log.warning(
+            "original image file is missing or inaccessible: image_id=%s path=%s",
+            image_id,
+            row["path"],
+        )
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return FileResponse(row["path"], headers={"Cache-Control": "private, max-age=3600"})
+
+
 @app.get("/image-thumb/{image_id}")
-def serve_image_thumbnail(image_id: int):
+def serve_image_thumbnail(
+    image_id: int,
+    thumb_retry: int = Query(0, alias="_thumb_retry", ge=0, le=2),
+):
     """Serve a cached thumbnail for a database-registered image only."""
     with get_db() as conn:
         row = conn.execute("SELECT path FROM images WHERE id = ?", (image_id,)).fetchone()
-    if not row or not row["path"] or not os.path.isfile(row["path"]):
+    if not row or not row["path"]:
+        log.warning("thumbnail request has no registered path: image_id=%s", image_id)
         return JSONResponse({"error": "Not found"}, status_code=404)
-    thumb_path = generate_image_thumbnail(row["path"])
+    if not os.path.isfile(row["path"]):
+        log.warning(
+            "thumbnail source is missing or inaccessible: image_id=%s path=%s",
+            image_id,
+            row["path"],
+        )
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    # The browser asks for retry=1 after a decode/request failure. Rebuild once
+    # so a stale or truncated cached JPEG cannot remain permanently blank.
+    thumb_path = generate_image_thumbnail(row["path"], force=(thumb_retry == 1))
     if not thumb_path or not os.path.isfile(thumb_path):
+        log.warning("thumbnail generation failed: image_id=%s path=%s", image_id, row["path"])
         return JSONResponse({"error": "Thumbnail unavailable"}, status_code=404)
     return FileResponse(thumb_path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
@@ -2607,6 +2844,11 @@ async def api_organize(request: Request):
     os.environ.update(organize_settings)
 
     def run(job):
+        preflight = _prepare_organizer_metadata(job, source_dirs)
+        if preflight.get("cancelled"):
+            job.state["result"] = {"cancelled": True, "preflight": preflight}
+            return
+        job.update(phase="organize", current=0, total=None, message="元数据已就绪，开始整理…")
         result = organize_files(
             source_dirs,
             output_dir,
@@ -2619,13 +2861,19 @@ async def api_organize(request: Request):
             rename_enabled=rename_enabled,
             rename_rule=rename_rule,
             rename_template=rename_template,
+            unavailable_pixiv_ids=preflight.get("unavailable_pixiv_ids", []),
         )
+        result["preflight"] = preflight
         job.state["result"] = result
         log.info(
-            "organize job finished: done=%s failed=%s classifications=%s",
+            "organize job finished: done=%s failed=%s classifications=%s "
+            "unavailable_artworks=%s path_fallback_files=%s manual_files=%s",
             result.get("done", 0),
             result.get("failed", 0),
             result.get("classification_counts", {}),
+            result.get("unavailable_artworks", 0),
+            result.get("path_fallback_files", 0),
+            result.get("manual_files", 0),
         )
 
     job_id, error = jobs.start("organize", run)

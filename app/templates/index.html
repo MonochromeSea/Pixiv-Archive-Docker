@@ -282,14 +282,14 @@
                         </button>
                         <div class="settings-select-menu hidden" id="organizeRenameRuleMenu" role="listbox">
                             <button type="button" role="option" data-value="keep" onclick="setOrganizeRenameRule('keep', '保持原文件名')">保持原文件名</button>
-                            <button type="button" role="option" data-value="shaft_modern" onclick="setOrganizeRenameRule('shaft_modern', '标题 ID_页码')">标题 ID_页码</button>
-                            <button type="button" role="option" data-value="title_author_page" onclick="setOrganizeRenameRule('title_author_page', '标题 作者_页码')">标题 作者_页码</button>
-                            <button type="button" role="option" data-value="shaft_id" onclick="setOrganizeRenameRule('shaft_id', '仅 ID_页码')">仅 ID_页码</button>
+                            <button type="button" role="option" data-value="shaft_modern" onclick="setOrganizeRenameRule('shaft_modern', '标题 ID 页码')">标题 ID 页码</button>
+                            <button type="button" role="option" data-value="title_author_page" onclick="setOrganizeRenameRule('title_author_page', '标题 作者 页码')">标题 作者 页码</button>
+                            <button type="button" role="option" data-value="shaft_id" onclick="setOrganizeRenameRule('shaft_id', '仅 ID 页码')">仅 ID 页码</button>
                             <button type="button" role="option" data-value="shaft_detail" onclick="setOrganizeRenameRule('shaft_detail', '详细信息')">详细信息</button>
                             <button type="button" role="option" data-value="custom" onclick="setOrganizeRenameRule('custom', '自定义模板')">自定义模板</button>
                         </div>
                     </div>
-                    <span class="field-hint" id="organizeRenameRuleHint">示例：作品标题 123456789_p1.jpg</span>
+                    <span class="field-hint" id="organizeRenameRuleHint">示例：作品标题 123456789 p1.jpg</span>
                     <div class="organize-template-editor hidden" id="organizeRenameTemplateField">
                         <textarea id="organizeRenameTemplate" rows="2" placeholder="例如 {author}_{title}_{id}_p{page}.{ext}"></textarea>
                         <div class="template-variable-guide">
@@ -567,7 +567,14 @@
                 <span class="field-hint" id="autoWatchHint"></span>
             </div>
             <div class="settings-field">
-                <label for="settingSseReleaseDelay">关闭显示窗口后释放前端资源</label>
+                <label class="settings-check">
+                    <input type="checkbox" id="settingSseReleaseEnabled">
+                    <span>关闭窗口后释放前端资源</span>
+                </label>
+                <span class="field-hint">开启后，浏览器窗口关闭或 SSE 断开达到下方时间时，释放已加载的缩略图缓存、详情页预加载和观察器；关闭后保留这些资源，重新进入画廊会更快。</span>
+            </div>
+            <div class="settings-field">
+                <label for="settingSseReleaseDelay">资源释放等待时间</label>
                 <div class="settings-inline-row">
                     <input type="number" id="settingSseReleaseDelay" min="10" max="86400" step="1" placeholder="60">
                     <span>秒</span>
@@ -771,13 +778,15 @@ let _viewerDetailPending = new Map();
 let _viewerPreloadUrls = new Set();
 let _viewerPageBubbleTimer = 0;
 let _galleryLayoutRaf = 0;
+let _galleryNearViewportRaf = 0;
 let _galleryLoading = false;
 let _galleryHasMore = true;
 let _galleryLazyObserver = null;
 let _galleryResizeObserver = null;
 let _gallerySidebarTimer = 0;
-const GALLERY_PRELOAD_CACHE_LIMIT = 40;
-const _galleryImageCache = new Map();
+let _galleryPriorityArtworkId = null;
+let _viewerOpenSequence = 0;
+let _viewerOpeningPreview = null;
 const GALLERY_PAGE_SIZE = 80;
 const OP_LOG_KEY = 'pa-operation-logs';
 const DUP_LOG_KEY = 'pa-duplicate-logs';
@@ -864,6 +873,7 @@ async function syncUiSettings() {
         applyFolderButtonVisibility(data.show_folder_button !== false);
         applyViewerAutoOriginal(data.viewer_auto_original !== false);
         applySidebarHoverExpand(data.sidebar_hover_expand !== false);
+        _sseReleaseEnabled = data.sse_release_enabled === true;
         _sseReleaseDelaySeconds = Number(data.sse_release_delay_seconds) || 60;
         try { localStorage.setItem('pa-show-folder-btn', data.show_folder_button !== false ? '1' : '0'); } catch (e) {}
     } catch (e) {}
@@ -1103,43 +1113,6 @@ function toggleExpandPages() {
     loadGallery(1);
 }
 
-function clearGalleryImageCache() {
-    _galleryImageCache.clear();
-}
-
-function warmGalleryImage(url) {
-    if (!url || _galleryImageCache.has(url)) return;
-    const image = new Image();
-    image.decoding = 'async';
-    image.src = url;
-    _galleryImageCache.set(url, image);
-    while (_galleryImageCache.size > GALLERY_PRELOAD_CACHE_LIMIT) {
-        const oldest = _galleryImageCache.keys().next().value;
-        _galleryImageCache.delete(oldest);
-    }
-}
-
-function warmGalleryImagesForNextMode(artworks, append = false) {
-    if (append || !Array.isArray(artworks)) return;
-    clearGalleryImageCache();
-    let warmed = 0;
-
-    for (const artwork of artworks) {
-        const images = Array.isArray(artwork.images) ? artwork.images.slice() : [];
-        images.sort((left, right) => Number(left.page || 0) - Number(right.page || 0));
-        const nextModeSources = expandPages
-            ? [artwork.thumb_path ? `/thumbnails/${artwork.pixiv_id}.jpg` : '']
-            : images.map(image => image && image.id ? paImg('/image-thumb/' + image.id) : '');
-
-        for (const source of nextModeSources) {
-            if (!source) continue;
-            warmGalleryImage(source);
-            warmed += 1;
-            if (warmed >= GALLERY_PRELOAD_CACHE_LIMIT) return;
-        }
-    }
-}
-
 async function loadGallery(page = 1, options = {}) {
     const append = !!options.append;
     const silent = !!options.silent;
@@ -1219,7 +1192,6 @@ function renderGallery(data, append = false) {
 
     const wall = $('wall');
     if (!append) {
-        clearGalleryImageCache();
         if (_galleryLazyObserver) _galleryLazyObserver.disconnect();
         wall.innerHTML = '';
         _navIds = [];
@@ -1257,7 +1229,15 @@ function renderGallery(data, append = false) {
             tile.dataset.page = img.page || 1;
             tile.dataset.status = a.pixiv_status || 'active';
             tile.dataset.pid = a.pixiv_id;
-            tile.onclick = () => { _navIndex = artNavIdx; showViewer(a.id, img.page || 1); };
+            tile.onclick = () => {
+                _navIndex = artNavIdx;
+                const preview = tile.querySelector('img');
+                showViewer(
+                    a.id,
+                    img.page || 1,
+                    preview ? (preview.currentSrc || preview.src || preview.dataset.src || '') : ''
+                );
+            };
 
             let badges = '';
             if (expandPages && a.page_count > 1) badges += `<span>P${img.page || 1}</span>`;
@@ -1271,9 +1251,7 @@ function renderGallery(data, append = false) {
             const favCls = a.is_favorited ? ' faved' : '';
             const selected = _selectedIds.has(a.id);
             const imgSrc = galleryImageSrc(a, img);
-            const fallbackImage = (!expandPages && img && img.path)
-                ? paImg('/image/' + encodeURI(img.path))
-                : (expandPages && img && img.path ? paImg('/image/' + encodeURI(img.path)) : '');
+            const fallbackImage = originalImageSrc(img);
             const imageHtml = imgSrc
                 ? `<img data-src="${escapeAttr(imgSrc)}" data-fallback-src="${escapeAttr(fallbackImage)}" alt="" loading="lazy" decoding="async">`
                 : '';
@@ -1295,7 +1273,6 @@ function renderGallery(data, append = false) {
         frag.appendChild(group);
     });
     wall.appendChild(frag);
-    warmGalleryImagesForNextMode(data.artworks, append);
     layoutGalleryGroups();
     bindGalleryGroupLayout(wall);
     scheduleGalleryGroupLayout();
@@ -1324,25 +1301,62 @@ function galleryImageSrc(a, img) {
     return a.thumb_path ? `/thumbnails/${a.pixiv_id}.jpg` : '';
 }
 
+function encodeImagePath(path) {
+    return String(path || '').split('/').map(encodeURIComponent).join('/');
+}
+
+function originalImageSrc(img) {
+    if (!img) return '';
+    if (img.id) return paImg('/image-original/' + img.id);
+    return img.path ? paImg('/image/' + encodeImagePath(img.path)) : '';
+}
+
 function loadGalleryImage(img) {
-    if (!img || !img.dataset.src) return;
+    if (!img || !img.dataset.src || img.dataset.loadState === 'loading') return;
     const src = img.dataset.src;
+    img.dataset.loadState = 'loading';
     img.loading = 'eager';
-    img.addEventListener('load', scheduleGalleryGroupLayout, { once: true });
+    if (_galleryLazyObserver) _galleryLazyObserver.unobserve(img);
+
+    const finishAttempt = () => {
+        delete img.dataset.loadState;
+        scheduleGalleryGroupLayout();
+        scheduleGalleryNearViewportLoad();
+    };
+    img.addEventListener('load', () => {
+        img.removeAttribute('data-src');
+        delete img.dataset.fallbackTried;
+        delete img.dataset.thumbRetries;
+        finishAttempt();
+    }, { once: true });
     img.addEventListener('error', () => {
+        const retries = Number(img.dataset.thumbRetries || 0);
+        if (!img.dataset.fallbackTried && retries < 2) {
+            img.dataset.thumbRetries = String(retries + 1);
+            delete img.dataset.loadState;
+            window.setTimeout(() => {
+                if (!img.isConnected || !img.dataset.src) return;
+                const retryUrl = new URL(img.dataset.src, window.location.href);
+                retryUrl.searchParams.set('_thumb_retry', String(retries + 1));
+                img.dataset.src = retryUrl.pathname + retryUrl.search;
+                loadGalleryImage(img);
+            }, 250 * (retries + 1));
+            return;
+        }
         const fallback = img.dataset.fallbackSrc;
-        if (fallback && img.src !== fallback && !img.dataset.fallbackTried) {
+        if (fallback && !img.dataset.fallbackTried) {
             img.dataset.fallbackTried = '1';
             img.dataset.src = fallback;
+            delete img.dataset.loadState;
             img.removeAttribute('src');
             loadGalleryImage(img);
             return;
         }
-        scheduleGalleryGroupLayout();
+        img.removeAttribute('data-src');
+        img.classList.add('gallery-image-failed');
+        finishAttempt();
     }, { once: true });
     img.src = src;
-    img.removeAttribute('data-src');
-    if (img.complete) scheduleGalleryGroupLayout();
 }
 
 function preloadGalleryImagesNearViewport(root) {
@@ -1354,6 +1368,33 @@ function preloadGalleryImagesNearViewport(root) {
     });
 }
 
+function scheduleGalleryNearViewportLoad() {
+    if (_galleryNearViewportRaf || _sseResourcesReleased) return;
+    _galleryNearViewportRaf = requestAnimationFrame(() => {
+        _galleryNearViewportRaf = 0;
+        const wall = $('wall');
+        if (!wall || currentView !== 'gallery') return;
+        preloadGalleryImagesNearViewport(wall);
+        observeLazyGalleryImages(wall);
+        maybeLoadMoreGallery();
+    });
+}
+
+function loadGalleryArtworkGroupPriority(artworkId, root) {
+    if (artworkId === null || artworkId === undefined) return;
+    const wall = root || $('wall');
+    if (!wall) return;
+    const expectedId = String(artworkId);
+    const tiles = wall.querySelectorAll('.tile[data-id]');
+    for (const tile of tiles) {
+        if (tile.dataset.id !== expectedId) continue;
+        const group = tile.closest('.artwork-group');
+        if (!group) return;
+        group.querySelectorAll('img[data-src]').forEach(loadGalleryImage);
+        return;
+    }
+}
+
 function observeLazyGalleryImages(root) {
     if (!('IntersectionObserver' in window)) {
         root.querySelectorAll('img[data-src]').forEach(img => {
@@ -1361,6 +1402,7 @@ function observeLazyGalleryImages(root) {
         });
         return;
     }
+    loadGalleryArtworkGroupPriority(_galleryPriorityArtworkId, root);
     if (!_galleryLazyObserver) {
         _galleryLazyObserver = new IntersectionObserver(entries => {
             entries.forEach(entry => {
@@ -1397,6 +1439,7 @@ function scheduleGalleryGroupLayout() {
     _galleryLayoutRaf = requestAnimationFrame(() => {
         _galleryLayoutRaf = 0;
         layoutGalleryGroups();
+        scheduleGalleryNearViewportLoad();
     });
 }
 
@@ -1459,12 +1502,15 @@ function releaseFrontendDisplayResources() {
     _viewerDetailCache.clear();
     _viewerDetailPending.clear();
     _viewerPreloadUrls.clear();
-    clearGalleryImageCache();
     clearTimeout(window._metadataGalleryRefreshTimer);
     clearTimeout(_gallerySidebarTimer);
     if (_galleryLayoutRaf) {
         cancelAnimationFrame(_galleryLayoutRaf);
         _galleryLayoutRaf = 0;
+    }
+    if (_galleryNearViewportRaf) {
+        cancelAnimationFrame(_galleryNearViewportRaf);
+        _galleryNearViewportRaf = 0;
     }
     if (_galleryLazyObserver) {
         _galleryLazyObserver.disconnect();
@@ -1488,7 +1534,7 @@ function releaseFrontendDisplayResources() {
 }
 
 function scheduleSseResourceRelease() {
-    if (_sseResourcesReleased || _sseReleaseTimer) return;
+    if (!_sseReleaseEnabled || _sseResourcesReleased || _sseReleaseTimer) return;
     _sseReleaseTimer = setTimeout(() => {
         _sseReleaseTimer = null;
         releaseFrontendDisplayResources();
@@ -2028,7 +2074,7 @@ async function loadDuplicatesView(mode = _duplicateViewMode) {
                 itemsHtml += `
                     <label class="duplicate-item" data-created-at="${Number(item.created_at || 0)}" data-area="${resolutionScore}">
                         <input type="checkbox" class="duplicate-check" value="${item.image_id}" ${defaultChecked}>
-                        <img src="${paImg('/image-thumb/' + item.image_id)}" data-fallback-src="${paImg('/image/' + encodeURI(item.path))}" loading="lazy" alt="" onclick="event.preventDefault();showViewer(${item.artwork_id}, ${item.page || 1})">
+                        <img src="${paImg('/image-thumb/' + item.image_id)}" data-fallback-src="${originalImageSrc({ id: item.image_id, path: item.path })}" loading="lazy" alt="" onclick="event.preventDefault();showViewer(${item.artwork_id}, ${item.page || 1})">
                         <span title="${escapeAttr(item.path || '')}">${escapeHtml(item.title || ('Pixiv ID: ' + item.pixiv_id))} · P${item.page || 1}</span>
                         <small class="duplicate-created">创建：${escapeHtml(createdText)}</small>
                     </label>`;
@@ -2149,6 +2195,7 @@ function deleteSelectedDuplicates() {
 const ORGANIZE_RULE_HINTS = {
     shaft_classic: '示例：输出目录/ShaftImages/',
     shaft_modern: '示例：输出目录/Shaft/R18/AI/画师_55555/',
+    bucket: '示例：输出目录/R18/AI/画师 (55555)/',
     shaft_flat: '示例：输出目录/Shaft/',
     shaft_date: '示例：输出目录/Shaft/2026/2026-09/',
     shaft_artist: '示例：输出目录/Shaft/画师_55555/',
@@ -2180,18 +2227,18 @@ const ORGANIZE_MODE_LABELS = {
 const ORGANIZE_RENAME_LABELS = {
     keep: '保持原文件名',
     shaft_classic: '标题_ID_页码',
-    shaft_modern: '标题 ID_页码',
-    title_author_page: '标题 作者_页码',
-    shaft_id: '仅 ID_页码',
+    shaft_modern: '标题 ID 页码',
+    title_author_page: '标题 作者 页码',
+    shaft_id: '仅 ID 页码',
     shaft_detail: '详细信息',
     custom: '自定义模板',
 };
 const ORGANIZE_RENAME_HINTS = {
     keep: '整理后保留源文件名',
     shaft_classic: '示例：作品标题_123456789_p1.jpg',
-    shaft_modern: '示例：作品标题 123456789_p1.jpg',
-    title_author_page: '示例：作品标题 作者名_p1.jpg',
-    shaft_id: '示例：123456789_p1.jpg',
+    shaft_modern: '示例：作品标题 123456789 p1.jpg',
+    title_author_page: '示例：作品标题 作者名 p1.jpg',
+    shaft_id: '示例：123456789 p1.jpg',
     shaft_detail: '示例：作品标题_123456789_1_作者_1920x1080_20260908_120000.jpg',
     custom: '这里只生成文件名，不会创建子目录',
 };
@@ -2695,25 +2742,44 @@ async function openViewerWithData(data, initialPage) {
 }
 
 // ===== Viewer (left info / right image) =====
-async function showViewer(artworkId, initialPage) {
+async function showViewer(artworkId, initialPage, previewSrc) {
     const overlay = $('viewerOverlay');
+    const openSequence = ++_viewerOpenSequence;
+    _galleryPriorityArtworkId = artworkId;
+    loadGalleryArtworkGroupPriority(artworkId);
+    _viewerOpeningPreview = previewSrc ? {
+        artworkId: String(artworkId),
+        page: String(initialPage || 1),
+        src: previewSrc,
+    } : null;
     overlay.classList.remove('hidden');
     try { applyViewerSidebarState(localStorage.getItem('pa-viewer-sidebar') === 'collapsed'); } catch (e) { updateViewerSidebarToggle(); }
     document.body.style.overflow = 'hidden';
-    $('vLoading').style.display = 'block';
-    $('vMainImage').style.display = 'none';
+    const openingImage = $('vMainImage');
+    if (previewSrc) {
+        openingImage.onload = null;
+        openingImage.onerror = null;
+        openingImage.src = previewSrc;
+        openingImage.style.display = 'block';
+        $('vLoading').style.display = 'none';
+    } else {
+        $('vLoading').style.display = 'block';
+        openingImage.style.display = 'none';
+    }
     $('vNav').style.display = 'none';
     $('vPrevArt').disabled = true;
     $('vNextArt').disabled = true;
 
     try {
         const data = await fetchViewerDetail(artworkId);
+        if (openSequence !== _viewerOpenSequence) return;
         if (data.error) { hideViewer(); return; }
         const initialIdx = initialPage
             ? Math.max(0, (data.images || []).findIndex(img => String(img.page || 1) === String(initialPage)))
             : 0;
         await openViewerWithData(data, initialIdx >= 0 ? initialIdx : 0);
     } catch (e) {
+        if (openSequence !== _viewerOpenSequence) return;
         $('vLoading').style.display = 'none';
         showToast('加载作品失败');
     }
@@ -2754,24 +2820,78 @@ function renderViewerImage() {
         return;
     }
     const mainImage = $('vMainImage');
-    const originalSrc = img.path ? paImg('/image/' + encodeURI(img.path)) : '';
+    const originalSrc = originalImageSrc(img);
     const thumbnailSrc = img.id ? paImg('/image-thumb/' + img.id) : '';
+    const coverThumbSrc = _viewer.data.cover_thumb_url ? paImg(_viewer.data.cover_thumb_url) : '';
     const viewerImageKey = `${_viewer.data.id}:${img.id || _viewer.idx}`;
+    const openingPreview = _viewerOpeningPreview
+        && _viewerOpeningPreview.artworkId === String(_viewer.data.id)
+        && _viewerOpeningPreview.page === String(img.page || 1)
+        ? _viewerOpeningPreview.src
+        : '';
+    _viewerOpeningPreview = null;
     mainImage.dataset.viewerImageKey = viewerImageKey;
     mainImage.dataset.originalSrc = originalSrc;
     mainImage.dataset.thumbnailSrc = thumbnailSrc;
+    mainImage.dataset.coverThumbSrc = coverThumbSrc;
     mainImage.dataset.originalLoaded = '0';
     mainImage.dataset.originalFallbackTried = '0';
+    mainImage.dataset.coverFallbackTried = '0';
     updateViewerOriginalButton();
-    mainImage.onerror = function () {
-        if (this.dataset.originalLoaded !== '1' && this.dataset.originalSrc && !this.dataset.originalFallbackTried) {
-            this.dataset.originalFallbackTried = '1';
-            this.src = this.dataset.originalSrc;
+    const loading = $('vLoading');
+    loading.textContent = '加载中...';
+    loading.style.display = 'block';
+    mainImage.onload = null;
+    mainImage.onerror = null;
+    if (openingPreview) {
+        mainImage.style.display = 'block';
+        mainImage.src = openingPreview;
+        loading.style.display = 'none';
+    } else if (mainImage.src && mainImage.style.display !== 'none') {
+        loading.style.display = 'block';
+    } else {
+        mainImage.removeAttribute('src');
+        mainImage.style.display = 'none';
+    }
+
+    const candidates = [];
+    const addCandidate = (src, isOriginal) => {
+        if (src && !candidates.some(item => item.src === src)) {
+            candidates.push({ src, isOriginal: !!isOriginal });
         }
     };
-    mainImage.onload = null;
-    mainImage.src = viewerImageSrc(img);
-    mainImage.style.display = 'block';
+    addCandidate(thumbnailSrc, false);
+    addCandidate(originalSrc, true);
+    addCandidate(coverThumbSrc, false);
+
+    const loadCandidate = (index) => {
+        if (mainImage.dataset.viewerImageKey !== viewerImageKey) return;
+        if (index >= candidates.length) {
+            if (!mainImage.src || mainImage.style.display === 'none') {
+                mainImage.style.display = 'none';
+                loading.textContent = '图片加载失败';
+                loading.style.display = 'block';
+            } else {
+                loading.style.display = 'none';
+            }
+            updateViewerOriginalButton();
+            return;
+        }
+        const candidate = candidates[index];
+        const probe = new Image();
+        probe.decoding = 'async';
+        probe.onload = () => {
+            if (mainImage.dataset.viewerImageKey !== viewerImageKey) return;
+            mainImage.dataset.originalLoaded = candidate.isOriginal ? '1' : '0';
+            mainImage.src = candidate.src;
+            mainImage.style.display = 'block';
+            loading.style.display = 'none';
+            updateViewerOriginalButton();
+        };
+        probe.onerror = () => loadCandidate(index + 1);
+        probe.src = candidate.src;
+    };
+    loadCandidate(0);
     updateViewerImageMeta(img);
     if (_viewerAutoOriginal && originalSrc) {
         const original = new Image();
@@ -2780,9 +2900,12 @@ function renderViewerImage() {
             if (mainImage.dataset.viewerImageKey === viewerImageKey && _viewer.data && _viewer.data.images[_viewer.idx] === img) {
                 mainImage.dataset.originalLoaded = '1';
                 mainImage.src = originalSrc;
+                mainImage.style.display = 'block';
+                loading.style.display = 'none';
                 updateViewerOriginalButton();
             }
         };
+        original.onerror = () => updateViewerOriginalButton();
         original.src = originalSrc;
     }
     showViewerPageBubble(_viewer.idx + 1, _viewer.data.images.length);
@@ -2818,9 +2941,13 @@ function showViewerOriginal() {
     if (_viewerAutoOriginal || !_viewer.data) return;
     const img = _viewer.data.images[_viewer.idx];
     const mainImage = $('vMainImage');
-    if (!img || !img.path || !mainImage || mainImage.dataset.originalLoaded === '1') return;
+    if (!img || !mainImage || mainImage.dataset.originalLoaded === '1') return;
     const viewerImageKey = mainImage.dataset.viewerImageKey;
-    const originalSrc = paImg('/image/' + encodeURI(img.path));
+    const originalSrc = originalImageSrc(img);
+    if (!originalSrc) {
+        showToast('原图路径不可用');
+        return;
+    }
     updateViewerOriginalButton(true);
     const original = new Image();
     original.decoding = 'async';
@@ -2831,9 +2958,14 @@ function showViewerOriginal() {
         }
         mainImage.dataset.originalLoaded = '1';
         mainImage.src = originalSrc;
+        mainImage.style.display = 'block';
+        $('vLoading').style.display = 'none';
         updateViewerOriginalButton();
     };
-    original.onerror = () => updateViewerOriginalButton();
+    original.onerror = () => {
+        updateViewerOriginalButton();
+        showToast('原图加载失败，已保留缩略图');
+    };
     original.src = originalSrc;
 }
 
@@ -2860,7 +2992,7 @@ function hideViewerPageBubble() {
 function viewerImageSrc(img) {
     if (!img) return '';
     if (img.id) return paImg('/image-thumb/' + img.id);
-    return img.path ? paImg('/image/' + encodeURI(img.path)) : '';
+    return originalImageSrc(img);
 }
 
 function formatViewerTime(value) {
@@ -2983,6 +3115,8 @@ async function loadAdjacentNavPage(direction) {
 }
 
 function hideViewer() {
+    _viewerOpenSequence += 1;
+    _viewerOpeningPreview = null;
     resetViewerZoom();
     hideViewerPageBubble();
     hideCtxMenu();
@@ -2990,7 +3124,9 @@ function hideViewer() {
     document.body.style.overflow = '';
     _viewer = { data: null, idx: 0 };
     $('vMainImage').onerror = null;
+    $('vMainImage').onload = null;
     $('vMainImage').removeAttribute('data-original-src');
+    $('vMainImage').removeAttribute('data-cover-thumb-src');
     $('vMainImage').src = '';
 }
 
@@ -3067,6 +3203,7 @@ let _eventsSource = null;
 let _eventsFallbackTimer = null;
 let _sseReleaseTimer = null;
 let _sseResourcesReleased = false;
+let _sseReleaseEnabled = false;
 let _sseReleaseDelaySeconds = 60;
 try {
     _lastSeenAutoJobId = localStorage.getItem('pa-last-auto-job-id') || '';
@@ -3168,13 +3305,13 @@ function launchJob(reqUrl, kind, method, body) {
             } else {
                 const err = (d && d.error) ? d.error : { message: '任务启动失败', code: 'UNKNOWN' };
                 if (kind === 'scan_full' || kind === 'sync_full') setFullTaskButtonsBusy(false);
-                showJobError(err);
+                showJobError(err, kind);
             }
         })
         .catch(e => {
             if (kind === 'scan_full' || kind === 'sync_full') setFullTaskButtonsBusy(false);
             showJobError({ code: 'CONN', message: '无法连接服务器：' + e.message,
-                           hint: '请确认服务仍在运行' });
+                           hint: '请确认服务仍在运行' }, kind);
         });
 }
 
@@ -3195,12 +3332,32 @@ function pollJob(jobId) {
         });
 }
 
+function restoreActiveJob() {
+    if (_sseResourcesReleased) return;
+    fetch('/api/jobs/active')
+        .then(r => r.json())
+        .then(data => {
+            const job = data && data.job;
+            if (!job || job.status !== 'running') return;
+            _currentJobId = job.job_id;
+            _currentJobPaused = !!job.paused;
+            setFabBusy(true);
+            if (job.kind === 'scan_full' || job.kind === 'sync_full') {
+                setFullTaskButtonsBusy(true);
+            }
+            renderJobProgress(job);
+            pollJob(job.job_id);
+        })
+        .catch(() => {});
+}
+
 function renderJobProgress(d) {
     _currentJobPaused = !!d.paused;
     if (d.message && d.message !== _lastJobLogMessage) {
         _lastJobLogMessage = d.message;
         const line = jobKindLabel(d.kind) + '：' + d.message;
-        appendOperationLog(line);
+        const lastLog = _operationLogs.length ? _operationLogs[0].text : '';
+        if (lastLog !== line) appendOperationLog(line);
         if (d.kind === 'organize' || d.kind === 'organize_undo') appendOrganizeLog(line);
     }
     updateLiveJobPanel(d);
@@ -3211,7 +3368,7 @@ function finishJob(d) {
     setFabBusy(false);
     setFullTaskButtonsBusy(false);
     if (d.status === 'error') {
-        showJobError(d.error || { message: '任务执行出错', code: 'INTERNAL' });
+        showJobError(d.error || { message: '任务执行出错', code: 'INTERNAL' }, d.kind);
         return;
     }
     if (d.status === 'cancelled') {
@@ -3271,6 +3428,7 @@ function startWatchEvents() {
         clearTimeout(_eventsFallbackTimer);
         clearTimeout(_watchPollTimer);
         restoreFrontendDisplayResources();
+        restoreActiveJob();
     });
     _eventsSource.addEventListener('watch_scan_queued', function () {
         showToast('检测到新图片，稍后自动扫描');
@@ -3331,6 +3489,9 @@ function pollWatchStatus() {
         .then(r => r.json())
         .then(d => {
             if (_sseResourcesReleased) return;
+            if (d.active_job && d.active_job.status === 'running' && !_currentJobId) {
+                restoreActiveJob();
+            }
             const job = d.last_auto_job;
             if (job && job.job_id && job.job_id !== _lastSeenAutoJobId && job.status !== 'running') {
                 if (job.status === 'done') {
@@ -3368,6 +3529,12 @@ function renderJobResult(d) {
             html += `<br>元数据：同步 ${r.synced || 0} · 已删除 ${r.sync_deleted || 0} · 失败 ${r.sync_failed || 0}`;
         } else if (r.sync_skipped === 'NO_TOKEN') {
             html += `<br>元数据：未设置 Pixiv Refresh Token，已跳过同步`;
+        }
+        const syncInfo = r.sync || {};
+        if (syncInfo.auth_error) {
+            html += `<div class="job-err-line">元数据同步失败（Pixiv 认证）：${escapeHtml(syncInfo.auth_error)}</div>`;
+        } else if (syncInfo.failed) {
+            html += `<div class="job-err-line">元数据同步失败 ${syncInfo.failed} 个，将在下次同步时自动重试。</div>`;
         }
     } else if (d.kind === 'bookmark_check') {
         html = `收藏订阅更新完成<br>检查 ${r.checked || 0} 个订阅 · 新增收藏 ${r.new_found || 0} · 下载 ${r.downloaded || 0} · 失败 ${r.failed || 0}`;
@@ -3412,12 +3579,22 @@ function renderJobResult(d) {
     $('jobResult').innerHTML = html;
 }
 
-function showJobError(err) {
+function showJobError(err, kind) {
     setFabBusy(false);
     hideLiveJobPanel();
     const code = escapeHtml(err.code || 'ERROR');
     const message = escapeHtml(err.message || '未知错误');
+    $('jobTitle').textContent = kind ? jobKindLabel(kind) : '任务失败';
+    $('jobBody').style.display = 'none';
+    $('jobResult').style.display = 'none';
+    const errorBox = $('jobError');
+    errorBox.style.display = 'block';
+    errorBox.innerHTML = `<span class="job-err-code">${code}</span><div>${message}</div>` +
+        (err.hint ? `<div class="job-err-hint">${escapeHtml(err.hint)}</div>` : '');
+    showJobWindow();
     appendOperationLog(`错误 ${code}：${message}${err.hint ? '；' + err.hint : ''}`);
+    clearTimeout(_jobCloseTimer);
+    _jobCloseTimer = setTimeout(hideJobWindow, 8000);
 }
 
 function closeJobWindow() {
@@ -3850,6 +4027,7 @@ async function openSettings() {
             ? `当前: ${sourceDirs.filter(Boolean).length} 个目录`
             : '未设置';
         $('settingAutoWatch').checked = !!data.auto_watch_enabled;
+        $('settingSseReleaseEnabled').checked = data.sse_release_enabled === true;
         $('settingSseReleaseDelay').value = data.sse_release_delay_seconds || 60;
         $('autoWatchHint').textContent = !data.auto_watch_available
             ? 'watchdog 未安装，安装依赖后才可启用'
@@ -3935,6 +4113,7 @@ async function saveSettings() {
     const syncDelay = $('settingSyncDelay').value.trim();
     const imageMirror = $('settingMirrorToggle').checked ? $('settingImageMirror').value.trim() : '';
     const autoWatch = $('settingAutoWatch').checked;
+    const sseReleaseEnabled = $('settingSseReleaseEnabled').checked;
     const sseReleaseDelay = $('settingSseReleaseDelay').value.trim();
     const showFolderBtn = $('settingShowFolderBtn').checked;
     const viewerAutoOriginal = $('settingViewerAutoOriginal').checked;
@@ -3954,6 +4133,7 @@ async function saveSettings() {
         sync_delay_ms: syncDelay,
         image_mirror: imageMirror,
         auto_watch_enabled: autoWatch,
+        sse_release_enabled: sseReleaseEnabled,
         sse_release_delay_seconds: sseReleaseDelay,
         show_folder_button: showFolderBtn,
         viewer_auto_original: viewerAutoOriginal,
@@ -3987,6 +4167,14 @@ async function saveSettings() {
             applyFolderButtonVisibility(showFolderBtn);
             applyViewerAutoOriginal(viewerAutoOriginal);
             applySidebarHoverExpand(sidebarHoverExpand);
+            _sseReleaseEnabled = sseReleaseEnabled;
+            if (!_sseReleaseEnabled) {
+                clearTimeout(_sseReleaseTimer);
+                _sseReleaseTimer = null;
+                if (_sseResourcesReleased) restoreFrontendDisplayResources();
+            } else if (!_eventsSource || _eventsSource.readyState !== EventSource.OPEN) {
+                scheduleSseResourceRelease();
+            }
             try { localStorage.setItem('pa-show-folder-btn', showFolderBtn ? '1' : '0'); } catch (e) {}
             $('bookmarkAutoHint').textContent = bookmarkAutoCheck
                 ? `当前：${formatBookmarkSchedule(bookmarkAutoWeekday, bookmarkAutoTime)} 执行一次`
@@ -4164,9 +4352,9 @@ document.addEventListener('keydown', function (e) {
     }
 });
 window.addEventListener('scroll', function () { hideCtxMenu(); }, true);
-window.addEventListener('scroll', maybeLoadMoreGallery, { passive: true });
+window.addEventListener('scroll', scheduleGalleryNearViewportLoad, { passive: true });
 window.addEventListener('resize', function () { hideCtxMenu(); });
-window.addEventListener('resize', maybeLoadMoreGallery, { passive: true });
+window.addEventListener('resize', scheduleGalleryNearViewportLoad, { passive: true });
 window.addEventListener('resize', scheduleGalleryGroupLayout);
 
 // 查看器滚轮缩放（双击还原）
@@ -4238,6 +4426,7 @@ loadOperationLogs();
 loadDuplicateLogs();
 loadOrganizeLogs();
 syncUiSettings();
+restoreActiveJob();
 if (window.pywebview && window.pywebview.api) {
     const f = $('openExternalField');
     if (f) f.style.display = 'block';

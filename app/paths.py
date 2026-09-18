@@ -44,3 +44,29 @@ DATA_DIR = get_data_dir()
 RES_DIR = get_res_dir()
 APP_DIR = get_app_dir()
 ENV_FILE = os.path.join(DATA_DIR, ".env")
+
+
+def load_env_file():
+    """加载 DATA_DIR/.env，并回填被容器环境变量置空的键。
+
+    python-dotenv 默认不覆盖已存在的环境变量，而 docker compose 里常见的
+    `PIXIV_REFRESH_TOKEN: ""` 会让「设置页保存到 .env 的真实值」永远读不到，
+    重启后表现为 token 凭空消失。这里把「环境变量为空」视为未设置。
+    """
+    try:
+        from dotenv import load_dotenv, dotenv_values
+    except ImportError:
+        return
+    load_dotenv(ENV_FILE)
+    try:
+        values = dotenv_values(ENV_FILE)
+    except OSError:
+        return
+    for key, value in values.items():
+        if value and not (os.environ.get(key) or "").strip():
+            os.environ[key] = value
+
+
+# 各模块（run.py / main.py / sync.py …）都依赖 .env 生效，统一在这里加载一次，
+# 之后它们自己的 load_dotenv 调用变成无害的重复操作。
+load_env_file()
